@@ -1,0 +1,17 @@
+{
+  "name": "Spark Homes — Repair Estimator",
+  "short_name": "Spark Estimator",
+  "description": "Mobile-first repair cost estimator for Spark Homes acquisition agents. Walk a property room by room, check off repairs, and export a full cost breakdown.",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0f172a",
+  "theme_color": "#d05000",
+  "categories": ["business", "productivity", "utilities"],
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

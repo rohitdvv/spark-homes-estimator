@@ -1,0 +1,1333 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1" />
+<meta name="theme-color" content="#d05000" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="apple-mobile-web-app-title" content="Spark Estimator" />
+<title>Spark Homes — Repair Estimator</title>
+<link rel="manifest" href="./manifest.json" />
+<link rel="apple-touch-icon" href="./apple-touch-icon.png" />
+<link rel="icon" href="./favicon.png" />
+
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+  tailwind.config = {
+    theme: {
+      extend: {
+        colors: {
+          spark: { DEFAULT: '#d05000', 600: '#d05000', 700: '#b84600', 500: '#f2660f', 50: '#fff4ec', 100: '#ffe6d5', 200: '#ffc9a3' },
+          ink: '#0f0f10'
+        },
+        fontFamily: { sans: ['Inter', 'system-ui', '-apple-system', 'sans-serif'] }
+      }
+    }
+  };
+</script>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
+
+<style>
+  :root { --spark: #d05000; }
+  * { -webkit-tap-highlight-color: transparent; }
+  html, body { overscroll-behavior-y: contain; }
+  body {
+    font-family: 'Inter', system-ui, sans-serif;
+    background: #f1f3f6;
+    color: #0f0f10;
+    padding-bottom: env(safe-area-inset-bottom);
+    -webkit-font-smoothing: antialiased;
+  }
+  /* Smooth accordion */
+  .acc { display: grid; grid-template-rows: 0fr; transition: grid-template-rows .32s cubic-bezier(.4,0,.2,1); }
+  .acc.open { grid-template-rows: 1fr; }
+  .acc > .acc-inner { overflow: hidden; }
+  /* Tab views fade/slide */
+  .view { animation: viewIn .28s cubic-bezier(.16,1,.3,1); }
+  @keyframes viewIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+  /* Modal */
+  .sheet-back { animation: fade .2s ease; }
+  .sheet { animation: sheetUp .34s cubic-bezier(.16,1,.3,1); }
+  @keyframes fade { from { opacity: 0; } to { opacity: 1; } }
+  @keyframes sheetUp { from { transform: translateY(100%); } to { transform: none; } }
+  .pop { animation: pop .26s cubic-bezier(.16,1,.3,1); }
+  @keyframes pop { from { opacity: 0; transform: scale(.94); } to { opacity: 1; transform: scale(1); } }
+  /* Pressable feedback */
+  .press { transition: transform .12s ease, background-color .15s ease; }
+  .press:active { transform: scale(.96); }
+  .checked-glow { box-shadow: 0 0 0 1.5px var(--spark) inset; }
+  /* total number flip */
+  .total-bump { animation: bump .35s cubic-bezier(.16,1,.3,1); }
+  @keyframes bump { 0% { transform: scale(1); } 40% { transform: scale(1.06); color: var(--spark); } 100% { transform: scale(1); } }
+  /* progress bar fill */
+  .pfill { transition: width .5s cubic-bezier(.16,1,.3,1); }
+  /* hide scrollbar on tab strip */
+  .noscroll::-webkit-scrollbar { display: none; }
+  .noscroll { -ms-overflow-style: none; scrollbar-width: none; }
+  input[type=number]::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+  .toast { animation: toastIn .3s cubic-bezier(.16,1,.3,1); }
+  @keyframes toastIn { from { opacity: 0; transform: translateY(20px) translateX(-50%); } to { opacity: 1; transform: translateY(0) translateX(-50%); } }
+  @media (prefers-reduced-motion: reduce) {
+    *, .view, .sheet, .pop, .acc { animation: none !important; transition: none !important; }
+  }
+</style>
+</head>
+<body class="select-none">
+
+<!-- ===================== APP ROOT ===================== -->
+<div id="app" class="max-w-md mx-auto min-h-screen flex flex-col bg-[#f1f3f6] shadow-xl"></div>
+
+<!-- Toast -->
+<div id="toast" class="fixed left-1/2 bottom-24 z-[60] hidden"></div>
+<!-- Modal mount -->
+<div id="modal" class="hidden"></div>
+
+<!-- ===================== LIBS (cached offline by SW) ===================== -->
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+
+<script>
+/* =====================================================================
+   SPARK HOMES — REPAIR ESTIMATOR
+   Single-file, offline-first PWA. Vanilla JS. No build step.
+   Data model: a project owns ROOM INSTANCES; each room instance owns
+   GROUPS; each (room,group,item) cell holds {checked, qty}. Prices come
+   from the official price list with per-project + global overrides.
+   ===================================================================== */
+
+/* ---------- 1. OFFICIAL PRICE LIST (verbatim from Pricing List.csv) ---------- */
+const PRICE_LIST = [{"id": "ig-01","name": "Refinish Hardwood Floor","cost": 2.35,"unit": "sqft"},{"id": "ig-02","name": "New Hardwoods 1.5\"","cost": 10.0,"unit": "sqft"},{"id": "ig-03","name": "New Hardwoods 2\"","cost": 4.75,"unit": "sqft"},{"id": "ig-04","name": "Hardwood Splicing","cost": 8.4,"unit": "sqft"},{"id": "ig-05","name": "Vinyl Plank","cost": 2.5,"unit": "sqft"},{"id": "ig-06","name": "Carpet","cost": 1.9,"unit": "sqft"},{"id": "ig-07","name": "Interior Paint — 2 Tone","cost": 2.95,"unit": "sqft"},{"id": "ig-08","name": "Drywall Repair","cost": 900.0,"unit": "1,000 sqft"},{"id": "ig-09","name": "Wallpaper Removal","cost": 250.0,"unit": "room"},{"id": "ig-10","name": "Interior Door — Hollow Slab","cost": 125.0,"unit": "ea."},{"id": "ig-11","name": "Interior Door Hardware (Knob + Hinges + Labor)","cost": 25.0,"unit": "ea."},{"id": "ig-12","name": "Bifold Door with Framing","cost": 400.0,"unit": "ea."},{"id": "ig-13","name": "Interior Door — Pre-hung","cost": 200.0,"unit": "ea."},{"id": "ig-14","name": "Front Entry Door","cost": 475.0,"unit": "ea."},{"id": "ig-15","name": "Front Entry Door Hardware","cost": 80.0,"unit": "ea."},{"id": "ig-16","name": "Exterior Door Hardware","cost": 75.0,"unit": "handle"},{"id": "ig-17","name": "Exterior Insulated Side Door (Installed)","cost": 500.0,"unit": "ea."},{"id": "ig-18","name": "Sliding Glass Door","cost": 1025.0,"unit": "ea."},{"id": "ig-19","name": "Trim Out (Casing, Crown, Baseboard)","cost": 3.75,"unit": "LF"},{"id": "ig-20","name": "MISC / Punch List","cost": 2650.0,"unit": "flat"},{"id": "ig-21","name": "Finish Out Labor","cost": 1350.0,"unit": "flat"},{"id": "ig-22","name": "Light Fixtures","cost": 70.0,"unit": "100 sqft"},{"id": "ig-23","name": "Bedbug Spray / Heat Treat","cost": 475.0,"unit": "ea."},{"id": "ig-24","name": "Termite Treatment","cost": 650.0,"unit": "ea."},{"id": "ig-25","name": "Demo","cost": 1375.0,"unit": "variable"},{"id": "ig-26","name": "Haul Off","cost": 725.0,"unit": "load"},{"id": "ig-27","name": "Final Cleaning","cost": 325.0,"unit": "flat"},{"id": "ig-28","name": "Staging","cost": 0.9,"unit": "sqft"},{"id": "kt-01","name": "Hinges and Pulls","cost": 275.0,"unit": "kitchen"},{"id": "kt-02","name": "Cabinets Uppers","cost": 125.0,"unit": "LF"},{"id": "kt-03","name": "Cabinets Lowers","cost": 150.0,"unit": "LF"},{"id": "kt-04","name": "Cabinet Door Faces Only","cost": 80.0,"unit": "door"},{"id": "kt-05","name": "Cabinets (Labor & Paint)","cost": 1100.0,"unit": "kitchen"},{"id": "kt-06","name": "Granite + 4\" Splash Guard","cost": 40.0,"unit": "LF"},{"id": "kt-07","name": "Backsplash","cost": 725.0,"unit": "house"},{"id": "kt-08","name": "Misc Woodwork","cost": 500.0,"unit": "variable"},{"id": "kt-09","name": "Tile — Large Areas","cost": 6.45,"unit": "sqft"},{"id": "kt-10","name": "Tile — Small Areas","cost": 10.0,"unit": "sqft"},{"id": "kt-11","name": "Undermount Kitchen Sink","cost": 325.0,"unit": "ea."},{"id": "kt-12","name": "Microwave / Hood","cost": 500.0,"unit": "ea."},{"id": "kt-13","name": "Range","cost": 725.0,"unit": "ea."},{"id": "kt-14","name": "Wall Oven","cost": 1075.0,"unit": "ea."},{"id": "kt-15","name": "Cooktop","cost": 550.0,"unit": "ea."},{"id": "kt-16","name": "Dishwasher","cost": 575.0,"unit": "ea."},{"id": "kt-17","name": "Fridge","cost": 1175.0,"unit": "ea."},{"id": "ba-01","name": "Granite ($/LF)","cost": 35.0,"unit": "LF"},{"id": "ba-02","name": "New Bottom Vanity","cost": 125.0,"unit": "LF"},{"id": "ba-03","name": "Home Depot Vanity w/ Sink (18\")","cost": 225.0,"unit": "ea."},{"id": "ba-04","name": "Toilet","cost": 150.0,"unit": "ea."},{"id": "ba-05","name": "Tile — Large Areas","cost": 5.8,"unit": "sqft"},{"id": "ba-06","name": "Tile — Small Areas","cost": 10.0,"unit": "sqft"},{"id": "ba-07","name": "Reglaze Tub or Chemical Clean","cost": 350.0,"unit": "ea."},{"id": "ba-08","name": "Reglaze Tub + Surround","cost": 750.0,"unit": "ea."},{"id": "ba-09","name": "Reglaze Shower","cost": 1325.0,"unit": "ea."},{"id": "ba-10","name": "Tiled Shower Tear Out + Tile Install","cost": 3100.0,"unit": "ea."},{"id": "ba-11","name": "Tub Tile Surround Tear Out + Tile Install (incl. tub)","cost": 2250.0,"unit": "ea."},{"id": "ba-12","name": "Shower Plastic Insert Tear Out + New Insert","cost": 825.0,"unit": "ea."},{"id": "ba-13","name": "Tub Tear Out + New Insert & Tub","cost": 1575.0,"unit": "ea."},{"id": "ba-14","name": "Undermount Sink","cost": 150.0,"unit": "ea."},{"id": "ba-15","name": "Mirror","cost": 200.0,"unit": "ea."},{"id": "ba-16","name": "HVL (needed if no window)","cost": 275.0,"unit": "ea."},{"id": "as-01","name": "Furnace","cost": 3350.0,"unit": "ea."},{"id": "as-02","name": "Condensing Unit","cost": 3300.0,"unit": "ea."},{"id": "as-03","name": "Package Unit","cost": 4700.0,"unit": "ea."},{"id": "as-04","name": "A-Coil (if no condensing unit)","cost": 1625.0,"unit": "ea."},{"id": "as-05","name": "Ducting (if NO HVAC)","cost": 3200.0,"unit": "ea."},{"id": "as-06","name": "Duct Cleaning — Floor Vents","cost": 550.0,"unit": "ea."},{"id": "as-07","name": "Window Unit Replacement 220","cost": 575.0,"unit": "ea."},{"id": "as-08","name": "Hot Water Heater w/ Expansion Tank","cost": 1425.0,"unit": "ea."},{"id": "as-09","name": "Hot Water Heater Expansion Tank Only","cost": 200.0,"unit": "ea."},{"id": "as-10","name": "Switches / Outlets","cost": 1400.0,"unit": "house"},{"id": "as-11","name": "Standard Electrical","cost": 1650.0,"unit": "house"},{"id": "as-12","name": "Subfloor","cost": 8.2,"unit": "sqft"},{"id": "as-13","name": "Framing","cost": 950.0,"unit": "variable"},{"id": "as-14","name": "Structural (Pier)","cost": 375.0,"unit": "pier"},{"id": "as-15","name": "Structural Foam Injection","cost": 5.85,"unit": "sqft of affected area"},{"id": "as-16","name": "Roof","cost": 1100.0,"unit": "225 sqft L&M"},{"id": "as-17","name": "Plumbing","cost": 1000.0,"unit": "variable"},{"id": "as-18","name": "Electrical Panel Swap to 200A","cost": 2350.0,"unit": "ea."},{"id": "as-19","name": "Full Electrical Rewire (to Studs)","cost": 5.65,"unit": "sqft"},{"id": "as-20","name": "Full Electrical Rewire (leaving Drywall)","cost": 9.15,"unit": "sqft"},{"id": "as-21","name": "Wall Insulation (to Studs)","cost": 1.2,"unit": "sqft"},{"id": "as-22","name": "Attic Insulation","cost": 1225.0,"unit": "1,600 sqft house"},{"id": "as-23","name": "New Drywall to Studs (L&M)","cost": 5.2,"unit": "sqft"},{"id": "as-24","name": "Aluminum Wiring","cost": 2450.0,"unit": "variable"},{"id": "ex-01","name": "Fence Repair — Chain Link / Wood Gate","cost": 225.0,"unit": "variable"},{"id": "ex-02","name": "Fence Repair — Chain Link","cost": 275.0,"unit": "LF"},{"id": "ex-03","name": "Fence Repair — Privacy 6ft","cost": 30.0,"unit": "LF"},{"id": "ex-04","name": "Landscaping","cost": 450.0,"unit": "variable"},{"id": "ex-05","name": "Vinyl Siding (10'x10')","cost": 300.0,"unit": "square"},{"id": "ex-06","name": "Tuck Pointing","cost": 225.0,"unit": "variable"},{"id": "ex-07","name": "Exterior Paint","cost": 2.6,"unit": "sqft"},{"id": "ex-08","name": "Exterior Wood Repair","cost": 525.0,"unit": "variable"},{"id": "ex-09","name": "Siding Repair (10'x10')","cost": 975.0,"unit": "section"},{"id": "ex-10","name": "Tree Trimming","cost": 450.0,"unit": "variable"},{"id": "ex-11","name": "Tree Removal (w/o stump)","cost": 1450.0,"unit": "tree"},{"id": "ex-12","name": "Stump Grinding","cost": 250.0,"unit": "stump"},{"id": "ex-13","name": "Aluminum Window Paint (Int/Ext)","cost": 700.0,"unit": "house"},{"id": "ex-14","name": "Windows (3x5 sash)","cost": 425.0,"unit": "ea."},{"id": "ex-15","name": "Window Repair — Non-Insulated (6x6+)","cost": 35.0,"unit": "sf"},{"id": "ex-16","name": "Window Repair — Insulated (6x6+)","cost": 40.0,"unit": "sf"},{"id": "ex-17","name": "Aluminum Framed Window Pane","cost": 100.0,"unit": "pane"},{"id": "ex-18","name": "Guttering","cost": 4.15,"unit": "LF"},{"id": "ex-19","name": "Concrete w/ Demo","cost": 200.0,"unit": "sqft"},{"id": "ex-20","name": "Mowing (summer, every 2 weeks)","cost": 45.0,"unit": "mowing"},{"id": "ex-21","name": "Garage Door — 1 Car","cost": 975.0,"unit": "ea."},{"id": "ex-22","name": "Garage Door — 2 Car (Installed)","cost": 1225.0,"unit": "ea."},{"id": "ex-23","name": "Garage Conversion","cost": 8850.0,"unit": "ea."}];
+
+/* ---------- 2. GROUP CATALOG (every price-list item is placed) ---------- */
+const GROUPS = {
+  // Interior / General
+  flooring:   { label: 'Flooring',            ids: ['ig-01','ig-02','ig-03','ig-04','ig-05','ig-06'] },
+  paint:      { label: 'Paint & Wall Repair', ids: ['ig-07','ig-08','ig-09'] },
+  doors:      { label: 'Doors',               ids: ['ig-10','ig-11','ig-12','ig-13','ig-14','ig-15','ig-16','ig-17','ig-18'] },
+  pest:       { label: 'Pest Control',        ids: ['ig-23','ig-24'] },
+  lighting:   { label: 'Lighting',            ids: ['ig-22'] },
+  closet:     { label: 'Closet',              ids: ['ig-12','ig-11'] },
+  general:    { label: 'General / Whole-House',ids: ['ig-19','ig-20','ig-21','ig-25','ig-26','ig-27','ig-28'] },
+  // Kitchen
+  cabinets:   { label: 'Cabinets',            ids: ['kt-01','kt-02','kt-03','kt-04','kt-05'] },
+  kcounters:  { label: 'Countertops & Tile',  ids: ['kt-06','kt-07','kt-08','kt-09','kt-10'] },
+  appliances: { label: 'Appliances',          ids: ['kt-11','kt-12','kt-13','kt-14','kt-15','kt-16','kt-17'] },
+  // Bathroom
+  vanity:     { label: 'Vanity & Countertop', ids: ['ba-01','ba-02','ba-03','ba-04','ba-14','ba-15'] },
+  tub:        { label: 'Tub & Shower',        ids: ['ba-07','ba-08','ba-09','ba-10','ba-11','ba-12','ba-13','ba-16'] },
+  btile:      { label: 'Tile',                ids: ['ba-05','ba-06'] },
+  // Systems & Structure
+  hvac:       { label: 'HVAC',                ids: ['as-01','as-02','as-03','as-04','as-05','as-06','as-07'] },
+  plumbing:   { label: 'Plumbing & Water Heater', ids: ['as-08','as-09','as-17'] },
+  electrical: { label: 'Electrical',          ids: ['as-10','as-11','as-18','as-19','as-20','as-24'] },
+  structural: { label: 'Structural',          ids: ['as-12','as-13','as-14','as-15','as-16'] },
+  insulation: { label: 'Insulation & Drywall',ids: ['as-21','as-22','as-23'] },
+  // Exterior
+  fence:      { label: 'Fence',               ids: ['ex-01','ex-02','ex-03'] },
+  siding:     { label: 'Siding',              ids: ['ex-05','ex-06','ex-07','ex-08','ex-09'] },
+  windows:    { label: 'Windows',             ids: ['ex-13','ex-14','ex-15','ex-16','ex-17'] },
+  garage:     { label: 'Garage',              ids: ['ex-21','ex-22','ex-23'] },
+  trees:      { label: 'Trees & Landscaping', ids: ['ex-04','ex-10','ex-11','ex-12','ex-20'] },
+  extmisc:    { label: 'Concrete & Gutters',  ids: ['ex-18','ex-19'] }
+};
+
+/* ---------- 3. ROOM TYPES ---------- */
+const ROOM_TYPES = {
+  interior: { label: 'Interior / General', section: 'Interior / General', icon: '🏠', single: true,  groups: ['flooring','paint','doors','pest','lighting','general'] },
+  systems:  { label: 'Systems & Structure',section: 'Systems & Structure',icon: '⚙️', single: true,  groups: ['hvac','plumbing','electrical','structural','insulation'] },
+  exterior: { label: 'Exterior',           section: 'Exterior',           icon: '🌳', single: true,  groups: ['fence','siding','windows','garage','trees','extmisc'] },
+  kitchen:  { label: 'Kitchen',            section: 'Kitchen',            icon: '🍳', single: false, groups: ['cabinets','kcounters','appliances'] },
+  bathroom: { label: 'Bathroom',           section: 'Bathrooms',          icon: '🛁', single: false, groups: ['vanity','tub','btile'] },
+  bedroom:  { label: 'Bedroom',            section: 'Interior / General', icon: '🛏️', single: false, groups: ['flooring','paint','doors','closet'] },
+  living:   { label: 'Living / Common',    section: 'Interior / General', icon: '🛋️', single: false, groups: ['flooring','paint','doors','lighting'] }
+};
+const ADDABLE = ['bathroom','bedroom','living','kitchen','interior','systems','exterior'];
+
+/* ---------- 4. STORAGE ---------- */
+const LS = {
+  projects: 'spark_projects_v1',
+  current:  'spark_current_v1',
+  global:   'spark_global_v1'   // { prices:{}, custom:[], deleted:[] }
+};
+const j = (k, fb) => { try { return JSON.parse(localStorage.getItem(k)) ?? fb; } catch { return fb; } };
+const setLS = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); return true; } catch { return false; } };
+
+let GLOBAL = j(LS.global, { prices: {}, custom: [], deleted: [] });
+function saveGlobal() { setLS(LS.global, GLOBAL); }
+
+/* effective catalog = price list + custom items, minus deleted */
+function catalog() {
+  return [...PRICE_LIST, ...GLOBAL.custom].filter(it => !GLOBAL.deleted.includes(it.id));
+}
+function itemById(id) { return catalog().find(i => i.id === id); }
+function groupItemIds(gid) {
+  const base = (GROUPS[gid]?.ids || []).filter(id => !GLOBAL.deleted.includes(id));
+  const extra = GLOBAL.custom.filter(c => c.groupId === gid).map(c => c.id);
+  return [...base, ...extra];
+}
+/* price resolution: project override -> global override -> list default */
+function priceOf(id) {
+  if (P && P.priceOverrides[id] != null) return P.priceOverrides[id];
+  if (GLOBAL.prices[id] != null) return GLOBAL.prices[id];
+  const it = itemById(id); return it ? it.cost : 0;
+}
+
+/* ---------- 5. PROJECT STATE ---------- */
+let projects = j(LS.projects, []);
+let P = null;        // active project object
+const UI = { tab: 'estimate', roomId: null, openGroups: {} , busy:false};
+
+function blankProject(name) {
+  const p = {
+    id: 'p' + Date.now().toString(36),
+    name: name || 'New Estimate',
+    address: '',
+    createdAt: new Date().toISOString(),
+    savedAt: new Date().toISOString(),
+    rooms: [],
+    cells: {},          // "roomId|groupId|itemId" -> {q}
+    nan: {},            // "roomId|groupId" -> true
+    priceOverrides: {}, // itemId -> cost (per project)
+    photos: [],         // {id,data,caption,serial}
+    deal: { arv: '', purchase: '', weeks: 8, perWeek: 350, sellPct: 8 }
+  };
+  // sensible defaults: the house-wide singletons + 1 kitchen + 1 bath
+  ['interior','systems','exterior','kitchen'].forEach(t => addRoom(p, t, true));
+  addRoom(p, 'bathroom', true);
+  return p;
+}
+function addRoom(p, type, silent) {
+  const t = ROOM_TYPES[type];
+  if (t.single && p.rooms.some(r => r.type === type)) { if(!silent) toast(t.label + ' already added'); return; }
+  const count = p.rooms.filter(r => r.type === type).length;
+  const name = t.single ? t.label : `${t.label} ${count + 1}`;
+  const room = { id: 'r' + Math.random().toString(36).slice(2, 8), type, name };
+  p.rooms.push(room);
+  if (!silent) { UI.roomId = room.id; save(); toast(name + ' added'); render(); }
+  return room;
+}
+function removeRoom(roomId) {
+  P.rooms = P.rooms.filter(r => r.id !== roomId);
+  Object.keys(P.cells).forEach(k => { if (k.startsWith(roomId + '|')) delete P.cells[k]; });
+  Object.keys(P.nan).forEach(k => { if (k.startsWith(roomId + '|')) delete P.nan[k]; });
+  if (UI.roomId === roomId) UI.roomId = P.rooms[0]?.id || null;
+  save(); render();
+}
+
+const cellKey = (r, g, i) => `${r}|${g}|${i}`;
+const nanKey  = (r, g) => `${r}|${g}`;
+
+function save() {
+  if (!P) return;
+  P.savedAt = new Date().toISOString();
+  const idx = projects.findIndex(x => x.id === P.id);
+  if (idx >= 0) projects[idx] = P; else projects.unshift(P);
+  const ok = setLS(LS.projects, projects);
+  if (!ok) {
+    // quota: retry stripping photo blobs of *other* projects
+    const slim = projects.map(p => p.id === P.id ? p : { ...p, photos: [] });
+    setLS(LS.projects, slim);
+  }
+  setLS(LS.current, P.id);
+}
+function openProject(id) {
+  P = projects.find(p => p.id === id);
+  if (!P) return;
+  UI.roomId = P.rooms[0]?.id || null;
+  UI.tab = 'estimate';
+  setLS(LS.current, id);
+  render();
+}
+
+/* ---------- 6. CALC ---------- */
+function lineTotal(roomId, gid, id) {
+  const c = P.cells[cellKey(roomId, gid, id)];
+  if (!c) return 0;
+  return (c.q || 0) * priceOf(id);
+}
+function groupTotal(roomId, gid) {
+  return groupItemIds(gid).reduce((s, id) => s + lineTotal(roomId, gid, id), 0);
+}
+function roomTotal(roomId) {
+  const r = P.rooms.find(x => x.id === roomId); if (!r) return 0;
+  return ROOM_TYPES[r.type].groups.reduce((s, g) => s + groupTotal(roomId, g), 0);
+}
+function grandTotal() { return P.rooms.reduce((s, r) => s + roomTotal(r.id), 0); }
+
+function isChecked(roomId, gid, id) { const c = P.cells[cellKey(roomId, gid, id)]; return !!(c && c.q != null); }
+function groupChecked(roomId, gid) { return groupItemIds(gid).filter(id => isChecked(roomId, gid, id)).length; }
+function groupComplete(roomId, gid) { return !!P.nan[nanKey(roomId, gid)] || groupChecked(roomId, gid) > 0; }
+
+function progress() {
+  let total = 0, done = 0;
+  P.rooms.forEach(r => ROOM_TYPES[r.type].groups.forEach(g => { total++; if (groupComplete(r.id, g)) done++; }));
+  return { total, done, pct: total ? Math.round(done / total * 100) : 0 };
+}
+
+/* ---------- 7. FORMAT ---------- */
+const fmt  = n => '$' + Math.round(n).toLocaleString('en-US');
+const fmt2 = n => '$' + Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const esc  = s => String(s).replace(/[&<>"']/g, m => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[m]));
+
+/* =====================================================================
+   8. RENDER
+   ===================================================================== */
+const $app = document.getElementById('app');
+
+function render() {
+  if (!P) { renderHome(); return; }
+  if (!UI.roomId && P.rooms[0]) UI.roomId = P.rooms[0].id;
+  const pr = progress();
+  $app.innerHTML = `
+    ${header(pr)}
+    <main class="flex-1 overflow-y-auto pb-28">${
+      UI.tab === 'estimate' ? viewEstimate()
+      : UI.tab === 'copilot' ? viewCopilot()
+      : UI.tab === 'photos' ? viewPhotos()
+      : UI.tab === 'deal'   ? viewDeal()
+      : viewExport()
+    }</main>
+    ${bottomNav()}
+  `;
+  bind();
+}
+
+/* ---- Header with project name, running total, progress ---- */
+function header(pr) {
+  return `
+  <header class="sticky top-0 z-40 bg-white/95 backdrop-blur border-b border-gray-200" style="padding-top:env(safe-area-inset-top)">
+    <div class="px-4 pt-3 pb-2 flex items-center gap-3">
+      <img src="./spark-logo.png" alt="Spark" class="h-5 w-auto" />
+      <div class="flex-1 min-w-0">
+        <button data-act="projects" class="press flex items-center gap-1 max-w-full">
+          <span class="font-bold text-[15px] truncate">${esc(P.name)}</span>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" class="text-gray-400 flex-shrink-0"><path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+        </button>
+        <div class="text-[11px] text-gray-400">${pr.done}/${pr.total} groups reviewed</div>
+      </div>
+      <div class="text-right">
+        <div class="text-[10px] uppercase tracking-wide text-gray-400 font-semibold">Estimate</div>
+        <div id="grand" class="text-xl font-extrabold text-spark leading-none">${fmt(grandTotal())}</div>
+      </div>
+    </div>
+    <div class="h-1.5 bg-gray-100">
+      <div class="pfill h-full bg-gradient-to-r from-spark-500 to-spark" style="width:${pr.pct}%"></div>
+    </div>
+  </header>`;
+}
+
+/* ---- Estimate view: room tabs + group accordions ---- */
+function viewEstimate() {
+  const room = P.rooms.find(r => r.id === UI.roomId) || P.rooms[0];
+  return `
+  <div class="view">
+    <!-- room chips -->
+    <div class="noscroll overflow-x-auto flex gap-2 px-4 py-3 bg-[#f1f3f6] sticky top-[0] z-30">
+      ${P.rooms.map(r => {
+        const t = ROOM_TYPES[r.type]; const active = r.id === (room && room.id);
+        const rt = roomTotal(r.id);
+        return `<button data-act="room" data-id="${r.id}"
+          class="press flex-shrink-0 px-3 py-2 rounded-2xl border text-sm font-semibold flex items-center gap-1.5
+          ${active ? 'bg-ink text-white border-ink shadow' : 'bg-white text-gray-600 border-gray-200'}">
+          <span>${t.icon}</span><span>${esc(r.name)}</span>
+          ${rt > 0 ? `<span class="text-[10px] font-bold ${active?'text-spark-200':'text-spark'}">${fmt(rt)}</span>` : ''}
+        </button>`;
+      }).join('')}
+      <button data-act="addroom" class="press flex-shrink-0 px-3 py-2 rounded-2xl border border-dashed border-gray-300 text-gray-500 text-sm font-semibold">+ Room</button>
+    </div>
+
+    ${room ? `
+      <div class="px-4 pb-4">
+        <div class="flex items-center justify-between mb-2 mt-1">
+          <h2 class="text-[13px] font-bold text-gray-500 uppercase tracking-wide">${ROOM_TYPES[room.type].icon} ${esc(room.name)}</h2>
+          ${!ROOM_TYPES[room.type].single
+            ? `<button data-act="delroom" data-id="${room.id}" class="press text-[12px] text-red-500 font-semibold">Remove room</button>` : ''}
+        </div>
+        ${ROOM_TYPES[room.type].groups.map(g => groupCard(room.id, g)).join('')}
+      </div>` : emptyRooms()}
+  </div>`;
+}
+
+function emptyRooms() {
+  return `<div class="text-center py-20 px-8 text-gray-400">
+    <div class="text-5xl mb-3">🏚️</div>
+    <p class="font-semibold text-gray-500">No rooms yet</p>
+    <button data-act="addroom" class="press mt-4 px-5 py-2.5 bg-spark text-white rounded-xl font-semibold">Add a room</button>
+  </div>`;
+}
+
+function groupCard(roomId, gid) {
+  const g = GROUPS[gid]; const ids = groupItemIds(gid);
+  const open = !!UI.openGroups[nanKey(roomId, gid)];
+  const checked = groupChecked(roomId, gid);
+  const nan = !!P.nan[nanKey(roomId, gid)];
+  const gt = groupTotal(roomId, gid);
+  const complete = groupComplete(roomId, gid);
+  return `
+  <div class="bg-white rounded-2xl mb-2.5 overflow-hidden shadow-sm ${checked>0?'checked-glow':''}">
+    <button data-act="grp" data-k="${nanKey(roomId, gid)}" class="press w-full flex items-center gap-2 px-4 py-3.5 text-left">
+      <span class="w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0 ${complete?'bg-spark text-white':'bg-gray-200 text-transparent'}">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none"><path d="M5 13l4 4L19 7" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </span>
+      <span class="flex-1 min-w-0">
+        <span class="font-semibold text-[15px] block leading-tight">${esc(g.label)}</span>
+        ${nan ? `<span class="text-[11px] text-gray-400">No action needed</span>`
+              : checked>0 ? `<span class="text-[11px] text-spark font-semibold">${checked} selected</span>`
+              : `<span class="text-[11px] text-gray-400">${ids.length} items</span>`}
+      </span>
+      <span class="font-bold text-[15px] ${gt>0?'text-spark':'text-gray-300'}">${gt>0?fmt(gt):'—'}</span>
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" class="text-gray-300 transition-transform ${open?'rotate-180':''}"><path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+    </button>
+    <div class="acc ${open?'open':''}"><div class="acc-inner">
+      <div class="px-3 pb-3 pt-0 border-t border-gray-100">
+        <label class="flex items-center gap-2 py-2.5 px-1 cursor-pointer">
+          <input type="checkbox" data-act="nan" data-k="${nanKey(roomId, gid)}" ${nan?'checked':''} class="w-4 h-4 accent-spark">
+          <span class="text-[13px] text-gray-500 font-medium">No Action Needed — reviewed, no work</span>
+        </label>
+        ${ids.map(id => lineRow(roomId, gid, id)).join('')}
+        <button data-act="additem" data-g="${gid}" class="press w-full mt-1 py-2 text-[13px] text-gray-400 font-semibold border border-dashed border-gray-200 rounded-xl">+ Add custom item</button>
+      </div>
+    </div></div>
+  </div>`;
+}
+
+function lineRow(roomId, gid, id) {
+  const it = itemById(id); if (!it) return '';
+  const checked = isChecked(roomId, gid, id);
+  const c = P.cells[cellKey(roomId, gid, id)] || {};
+  const q = c.q != null ? c.q : 1;
+  const price = priceOf(id);
+  const overridden = (P.priceOverrides[id] != null) || (GLOBAL.prices[id] != null);
+  const custom = GLOBAL.custom.some(x => x.id === id);
+  return `
+  <div class="flex items-center gap-2 py-2 ${checked?'':''}">
+    <button data-act="chk" data-r="${roomId}" data-g="${gid}" data-i="${id}"
+      class="press w-6 h-6 rounded-md border-2 flex items-center justify-center flex-shrink-0 ${checked?'bg-spark border-spark':'border-gray-300 bg-white'}">
+      ${checked?`<svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M5 13l4 4L19 7" stroke="white" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg>`:''}
+    </button>
+    <div class="flex-1 min-w-0">
+      <div class="text-[14px] font-medium leading-tight truncate">${esc(it.name)}${custom?'<span class="text-[10px] text-spark font-bold ml-1">NEW</span>':''}</div>
+      <button data-act="price" data-i="${id}" class="text-[11px] ${overridden?'text-spark font-semibold':'text-gray-400'}">${fmt2(price)} / ${esc(it.unit)} ${overridden?'· edited':''}</button>
+    </div>
+    ${checked ? `
+      <div class="flex items-center gap-1 flex-shrink-0">
+        <button data-act="qty" data-r="${roomId}" data-g="${gid}" data-i="${id}" data-d="-1" class="press w-7 h-7 rounded-lg bg-gray-100 text-gray-600 font-bold text-lg leading-none">−</button>
+        <input data-act="qtyin" data-r="${roomId}" data-g="${gid}" data-i="${id}" value="${q}" inputmode="decimal"
+          class="w-11 h-7 text-center text-[13px] font-semibold border border-gray-200 rounded-lg" />
+        <button data-act="qty" data-r="${roomId}" data-g="${gid}" data-i="${id}" data-d="1" class="press w-7 h-7 rounded-lg bg-gray-100 text-gray-600 font-bold text-lg leading-none">+</button>
+      </div>
+      <div class="w-16 text-right font-bold text-[14px] text-spark flex-shrink-0">${fmt(lineTotal(roomId,gid,id))}</div>
+    ` : `<div class="text-[12px] text-gray-300 flex-shrink-0">tap to add</div>`}
+    <button data-act="delitem" data-i="${id}" class="press text-gray-300 hover:text-red-400 flex-shrink-0 pl-1">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M6 7h12M9 7V5h6v2m-7 0v12a1 1 0 001 1h6a1 1 0 001-1V7" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+    </button>
+  </div>`;
+}
+
+/* ---- Photos view ---- */
+function viewPhotos() {
+  return `
+  <div class="view px-4 py-4">
+    <div class="flex items-center justify-between mb-3">
+      <h2 class="font-bold text-lg">Photos <span class="text-gray-400 font-medium text-sm">(${P.photos.length})</span></h2>
+    </div>
+    <div class="grid grid-cols-2 gap-3 mb-4">
+      <button data-act="live" class="press rounded-2xl border-2 border-spark bg-spark text-white py-5 text-center">
+        <div class="text-2xl mb-1">🎥</div>
+        <div class="font-bold text-[14px]">Live capture</div>
+        <div class="text-[11px] text-spark-100">Video walkthrough → grab frames</div>
+      </button>
+      <label class="press rounded-2xl border-2 border-dashed border-spark-200 bg-spark-50 py-5 text-center cursor-pointer block">
+        <div class="text-2xl mb-1">📷</div>
+        <div class="font-semibold text-spark-700 text-[14px]">Photo / upload</div>
+        <div class="text-[11px] text-gray-500">Serial plates, damage</div>
+        <input type="file" accept="image/*" capture="environment" multiple data-act="addphoto" class="hidden" />
+      </label>
+    </div>
+    ${P.photos.length === 0 ? `<p class="text-center text-gray-400 text-sm py-6">No photos yet.</p>` : `
+      <div class="grid grid-cols-2 gap-3">
+        ${P.photos.map(ph => `
+          <div class="bg-white rounded-2xl overflow-hidden shadow-sm pop">
+            <img src="${ph.data}" class="w-full h-32 object-cover" />
+            <div class="p-2.5">
+              <div class="flex items-center gap-1 mb-1">
+                <input id="cap_${ph.id}" data-act="cap" data-id="${ph.id}" value="${esc(ph.caption||'')}" placeholder="Caption…" class="flex-1 min-w-0 text-[12px] font-medium border-b border-gray-100 pb-1 outline-none" />
+                <button data-act="capmic" data-id="${ph.id}" class="press text-[13px] flex-shrink-0" title="Dictate caption">🎙️</button>
+              </div>
+              ${ph.serial ? `<div class="text-[11px] text-spark font-bold break-all">SN: ${esc(ph.serial)}</div>` : ''}
+              <div class="flex gap-1.5 mt-1.5">
+                <button data-act="ocr" data-id="${ph.id}" class="press flex-1 text-[11px] font-semibold bg-gray-100 rounded-lg py-1.5">${ph.serial?'Re-scan':'Scan serial #'}</button>
+                <button data-act="delphoto" data-id="${ph.id}" class="press text-[11px] font-semibold bg-red-50 text-red-500 rounded-lg py-1.5 px-2.5">Delete</button>
+              </div>
+            </div>
+          </div>`).join('')}
+      </div>`}
+  </div>`;
+}
+
+/* ---- Deal Analyzer (creative addition) ---- */
+function viewDeal() {
+  const d = P.deal; const repairs = grandTotal();
+  const arv = +d.arv || 0, purchase = +d.purchase || 0;
+  const holding = (+d.weeks || 0) * (+d.perWeek || 0);
+  const selling = arv * ((+d.sellPct || 0) / 100);
+  const totalCost = purchase + repairs + holding + selling;
+  const profit = arv - totalCost;
+  const roi = totalCost > 0 ? (profit / totalCost * 100) : 0;
+  const mao = arv * 0.7 - repairs; // 70% rule max allowable offer
+  let verdict, vc, vmsg;
+  if (!arv || !purchase) { verdict='Enter numbers'; vc='bg-gray-100 text-gray-500'; vmsg='Add ARV and purchase price to analyze the deal.'; }
+  else if (profit >= 25000 && roi >= 15) { verdict='GO'; vc='bg-green-100 text-green-700'; vmsg='Healthy margin. Numbers support an offer.'; }
+  else if (profit > 0) { verdict='CAUTION'; vc='bg-amber-100 text-amber-700'; vmsg='Thin margin — recheck repairs and holding time.'; }
+  else { verdict='NO-GO'; vc='bg-red-100 text-red-700'; vmsg='Projected loss at this price. Offer lower or walk.'; }
+
+  const row = (l, v, sub) => `<div class="flex justify-between items-baseline py-2 border-b border-gray-100"><span class="text-gray-500 text-[13px]">${l}${sub?`<span class="block text-[10px] text-gray-300">${sub}</span>`:''}</span><span class="font-semibold">${v}</span></div>`;
+  const inp = (k, ph, pre) => `<div class="relative"><span class="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">${pre||''}</span><input data-act="deal" data-k="${k}" value="${esc(d[k])}" placeholder="${ph}" inputmode="decimal" class="w-full ${pre?'pl-7':'pl-3'} pr-3 py-2.5 rounded-xl border border-gray-200 font-semibold outline-none focus:border-spark" /></div>`;
+
+  return `
+  <div class="view px-4 py-4 space-y-4">
+    <div>
+      <h2 class="font-bold text-lg flex items-center gap-2">📊 Deal Analyzer</h2>
+      <p class="text-[12px] text-gray-400">Live profit projection from your live repair estimate.</p>
+    </div>
+    <div class="grid grid-cols-2 gap-3">
+      <div><label class="text-[11px] font-semibold text-gray-500 mb-1 block">After-Repair Value (ARV)</label>${inp('arv','280,000','$')}</div>
+      <div><label class="text-[11px] font-semibold text-gray-500 mb-1 block">Purchase Price</label>${inp('purchase','150,000','$')}</div>
+      <div><label class="text-[11px] font-semibold text-gray-500 mb-1 block">Hold Time (weeks)</label>${inp('weeks','8')}</div>
+      <div><label class="text-[11px] font-semibold text-gray-500 mb-1 block">Holding $/week</label>${inp('perWeek','350','$')}</div>
+      <div class="col-span-2"><label class="text-[11px] font-semibold text-gray-500 mb-1 block">Selling Costs (% of ARV)</label>${inp('sellPct','8','%')}</div>
+    </div>
+
+    <div class="rounded-2xl ${vc} p-4 pop">
+      <div class="flex items-center justify-between">
+        <span class="font-extrabold text-2xl tracking-tight">${verdict}</span>
+        ${arv&&purchase?`<div class="text-right"><div class="text-[11px] font-semibold opacity-70">Projected Profit</div><div class="font-extrabold text-2xl">${fmt(profit)}</div></div>`:''}
+      </div>
+      <p class="text-[12px] mt-1 font-medium opacity-90">${vmsg}</p>
+    </div>
+
+    <div class="bg-white rounded-2xl p-4 shadow-sm">
+      ${row('Repair estimate', fmt(repairs), 'live from this walkthrough')}
+      ${row('Purchase price', fmt(purchase))}
+      ${row('Holding costs', fmt(holding), `${d.weeks||0} wk × ${fmt2(+d.perWeek||0)}`)}
+      ${row('Selling costs', fmt(selling), `${d.sellPct||0}% of ARV`)}
+      ${row('Total cost basis', fmt(totalCost))}
+      <div class="flex justify-between items-baseline pt-3"><span class="font-bold">Return on cost</span><span class="font-extrabold ${roi>=15?'text-green-600':roi>0?'text-amber-600':'text-red-500'}">${roi.toFixed(1)}%</span></div>
+    </div>
+
+    <div class="bg-ink text-white rounded-2xl p-4">
+      <div class="flex justify-between items-center">
+        <div><div class="text-[11px] text-gray-400 font-semibold">70% RULE — Max Allowable Offer</div><div class="text-[10px] text-gray-500">ARV × 70% − repairs</div></div>
+        <div class="font-extrabold text-2xl text-spark-500">${fmt(mao)}</div>
+      </div>
+    </div>
+  </div>`;
+}
+
+/* ---- Export view ---- */
+function viewExport() {
+  const pr = progress();
+  const sections = {};
+  P.rooms.forEach(r => {
+    const sec = ROOM_TYPES[r.type].section;
+    sections[sec] = (sections[sec] || 0) + roomTotal(r.id);
+  });
+  return `
+  <div class="view px-4 py-4 space-y-4">
+    <h2 class="font-bold text-lg">Export estimate</h2>
+    <div class="bg-white rounded-2xl p-4 shadow-sm space-y-1">
+      <div class="flex justify-between text-sm"><span class="text-gray-500">Project</span><span class="font-semibold">${esc(P.name)}</span></div>
+      <div class="flex justify-between text-sm"><span class="text-gray-500">Rooms</span><span class="font-semibold">${P.rooms.length}</span></div>
+      <div class="flex justify-between text-sm"><span class="text-gray-500">Groups reviewed</span><span class="font-semibold">${pr.done}/${pr.total}</span></div>
+      <div class="flex justify-between text-sm"><span class="text-gray-500">Photos</span><span class="font-semibold">${P.photos.length}</span></div>
+      <div class="flex justify-between text-base pt-2 border-t border-gray-100 mt-1"><span class="font-bold">Grand total</span><span class="font-extrabold text-spark">${fmt(grandTotal())}</span></div>
+    </div>
+    <div class="bg-white rounded-2xl p-4 shadow-sm">
+      <div class="text-[12px] font-semibold text-gray-400 uppercase mb-2">By section</div>
+      ${Object.entries(sections).filter(([,v])=>v>0).map(([s,v])=>`<div class="flex justify-between py-1 text-sm"><span class="text-gray-600">${s}</span><span class="font-semibold">${fmt(v)}</span></div>`).join('') || '<div class="text-sm text-gray-400">Nothing selected yet.</div>'}
+    </div>
+    <button data-act="export" class="press w-full py-4 bg-spark text-white rounded-2xl font-bold text-lg shadow-lg shadow-spark/30 flex items-center justify-center gap-2">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none"><path d="M12 3v12m0 0l-4-4m4 4l4-4M4 17v2a2 2 0 002 2h12a2 2 0 002-2v-2" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      Download ZIP (Excel + photos)
+    </button>
+    <p class="text-center text-[12px] text-gray-400">Generates an .xlsx cost breakdown plus every photo, bundled into one ZIP — works fully offline.</p>
+  </div>`;
+}
+
+/* =====================================================================
+   8b. AI COPILOT  — client-side multi-agent assistant (100% offline)
+   A small orchestration of rule-based "specialist agents" that read the
+   live estimate, plus a retrieval assistant over an embedded knowledge
+   base. No network, no API key, no server — contest-legal.
+   ===================================================================== */
+
+/* Embedded knowledge base (repair guidelines) — the corpus for RAG-lite */
+const KB = [
+  { k:['hvac','furnace','heat','ac','condenser','duct'], a:'HVAC is a top hidden cost. A furnace runs ~$3,350, condensing unit ~$3,300, full package unit ~$4,700. Always photograph the data plate for the serial/model, and add duct cleaning when replacing equipment.' },
+  { k:['foundation','structural','pier','settle','crack'], a:'Foundation work swings estimates by thousands. Piers run ~$375 each; foam injection ~$5.85/sqft of affected area. Never skip a structural walk — check for sloping floors and stair-step cracks.' },
+  { k:['electrical','rewire','panel','aluminum','wiring'], a:'A full rewire to studs is ~$5.65/sqft; leaving drywall ~$9.15/sqft. Aluminum wiring (~$2,450) is a safety + insurability flag. A 200A panel swap is ~$2,350. Rewires almost always trigger new drywall.' },
+  { k:['roof','shingle','leak'], a:'Roof is ~$1,100 per 225 sqft (labor & materials). Check for active leaks and decking damage before pricing.' },
+  { k:['kitchen','cabinet','counter','granite','appliance'], a:'Cabinets and appliances are the kitchen cost drivers. Cabinet labor & paint ~$1,100; granite + splash ~$40/LF. If you replace cabinets, you usually re-do countertops.' },
+  { k:['bathroom','tub','shower','tile','vanity','reglaze'], a:'Decide reglaze vs tear-out early: reglaze tub+surround ~$750 vs a tiled shower tear-out + install ~$3,100. A tub tear-out usually means new tile too. Don\'t price both reglaze and tear-out on the same fixture.' },
+  { k:['flooring','floor','carpet','vinyl','hardwood','lvp'], a:'Vinyl plank ~$2.50/sqft, carpet ~$1.90/sqft, refinish hardwood ~$2.35/sqft. New flooring usually needs trim-out (casing/baseboard) afterward.' },
+  { k:['arv','profit','margin','70','rule','offer','deal'], a:'Use the 70% rule as a sanity check: Max Allowable Offer = ARV × 0.70 − repairs. The Deal tab computes live profit, ROI, and a GO/CAUTION/NO-GO verdict from your running estimate.' },
+  { k:['exterior','siding','paint','fence','curb'], a:'Exterior drives curb appeal and sale price — it\'s evaluated first. Vinyl siding ~$300/square; exterior paint ~$2.60/sqft. New siding usually pairs with exterior paint.' },
+  { k:['photo','serial','model','evidence','camera','video'], a:'Photograph serial/model plates on HVAC, water heaters, and appliances. Use Live Capture to grab frames from a video walkthrough, then run "Scan serial #" to OCR the plate on-device.' },
+  { k:['export','excel','zip','share'], a:'Export bundles an Excel cost breakdown (with a Deal Analysis sheet) plus every photo into one ZIP that downloads to the device — and it works fully offline.' },
+  { k:['offline','install','pwa','home','screen'], a:'This is an installable PWA. Add it to your home screen from Chrome/Safari; after the first load it runs fully offline and saves everything on the device.' }
+];
+
+function firstRoom(type){ return P.rooms.find(r => r.type === type); }
+
+/* ---- Agent: Inspection Coverage (intake + completeness validation) ---- */
+function agentCoverage(){
+  const f = [];
+  const pr = progress();
+  if (P.rooms.length === 0) f.push({ sev:'high', msg:'No rooms added yet — add the rooms in this house to begin.' });
+  if (pr.total && pr.done < pr.total) f.push({ sev:'med', msg:`${pr.total - pr.done} of ${pr.total} groups still unreviewed. Mark each "No Action Needed" or add items so nothing is skipped.` });
+  // big-ticket guard
+  const sys = firstRoom('systems');
+  if (sys){
+    const big = [['hvac','HVAC / furnace'],['electrical','Electrical'],['structural','Structural / foundation'],['plumbing','Plumbing / water heater']];
+    const missed = big.filter(([g]) => !groupComplete(sys.id, g)).map(([,l]) => l);
+    if (missed.length) f.push({ sev:'high', msg:`Big-ticket items not yet reviewed: ${missed.join(', ')}. These swing estimates by thousands — never miss them.` });
+  } else {
+    f.push({ sev:'high', msg:'No "Systems & Structure" room — the hidden costs (HVAC, foundation, rewire) live here. Add it.' });
+  }
+  if (!(+P.deal.arv) || !(+P.deal.purchase)) f.push({ sev:'low', msg:'Deal inputs incomplete — add ARV and purchase price on the Deal tab for a profit verdict.' });
+  if (f.length === 0) f.push({ sev:'ok', msg:'Full coverage — every group reviewed and big-ticket systems checked. Solid walkthrough.' });
+  return f;
+}
+
+/* ---- Agent: Recommendations (related / commonly-paired items) ---- */
+function agentRecommend(){
+  const recs = [];
+  const has = (rid,gid,id) => isChecked(rid,gid,id);
+  const anySelection = Object.keys(P.cells).length > 0;
+  const interior = firstRoom('interior'), sys = firstRoom('systems'), ext = firstRoom('exterior'), kit = firstRoom('kitchen');
+  const add = (cond, target, title, why) => { if (cond && itemById(target.id) && !isChecked(target.rid,target.gid,target.id)) recs.push({ target, title, why }); };
+
+  // new flooring anywhere -> trim out (interior/general)
+  const floorIds = ['ig-01','ig-02','ig-03','ig-04','ig-05','ig-06'];
+  const anyFloor = P.rooms.some(r => ROOM_TYPES[r.type].groups.includes('flooring') && floorIds.some(id => has(r.id,'flooring',id)));
+  if (interior) add(anyFloor, {rid:interior.id,gid:'general',id:'ig-19'}, 'Add Trim-Out', 'New flooring almost always needs casing/baseboard re-installed.');
+
+  if (sys){
+    add(has(sys.id,'hvac','as-01'), {rid:sys.id,gid:'hvac',id:'as-06'}, 'Add Duct Cleaning', 'Replacing the furnace? Clean the ducts while the system is open.');
+    const rewire = has(sys.id,'electrical','as-19') || has(sys.id,'electrical','as-20');
+    add(rewire, {rid:sys.id,gid:'insulation',id:'as-23'}, 'Add New Drywall', 'A rewire to studs means drywall has to go back up.');
+  }
+  if (kit){
+    const cab = ['kt-02','kt-03','kt-05'].some(id => has(kit.id,'cabinets',id));
+    add(cab, {rid:kit.id,gid:'kcounters',id:'kt-06'}, 'Add Countertops', 'New cabinets usually pair with new countertops.');
+  }
+  if (ext) add(has(ext.id,'siding','ex-05'), {rid:ext.id,gid:'siding',id:'ex-07'}, 'Add Exterior Paint', 'New siding sections need to be painted to match.');
+
+  // per-bathroom: tub tear-out without tile
+  P.rooms.filter(r => r.type === 'bathroom').forEach(b => {
+    const tearout = ['ba-10','ba-11','ba-13'].some(id => has(b.id,'tub',id));
+    const tile = ['ba-05','ba-06'].some(id => has(b.id,'btile',id));
+    if (tearout && !tile && itemById('ba-05')) recs.push({ target:{rid:b.id,gid:'btile',id:'ba-05'}, title:`Add Tile — ${b.name}`, why:'A tub/shower tear-out exposes the wall — budget tile.' });
+  });
+
+  // whole-house close-out
+  if (interior && anySelection){
+    add(true, {rid:interior.id,gid:'general',id:'ig-26'}, 'Add Haul-Off', 'Any demo/replacement generates debris that has to be hauled.');
+    add(true, {rid:interior.id,gid:'general',id:'ig-27'}, 'Add Final Cleaning', 'Every flip needs a final clean before listing.');
+  }
+  return recs;
+}
+
+/* ---- Agent: Anomaly / risk detection (fraud-style outlier checks) ---- */
+function agentAnomaly(){
+  const flags = [];
+  // quantity outliers
+  Object.entries(P.cells).forEach(([k,c]) => {
+    const [rid,gid,id] = k.split('|'); const it = itemById(id); if (!it) return;
+    const u = it.unit.toLowerCase();
+    const big = (/sqft|sf|lf|square/.test(u) && c.q > 5000) || (/ea\.|pier|tree|pane|door|handle|load|stump/.test(u) && c.q > 25);
+    if (big) flags.push({ sev:'med', msg:`Unusual quantity: ${it.name} = ${c.q} ${it.unit}. Double-check before the offer.` });
+  });
+  // extreme price overrides
+  const allOv = { ...GLOBAL.prices, ...P.priceOverrides };
+  Object.entries(allOv).forEach(([id,v]) => {
+    const it = PRICE_LIST.find(x => x.id === id); if (!it || !it.cost) return;
+    const ratio = v / it.cost;
+    if (ratio > 2.5 || ratio < 0.4) flags.push({ sev:'med', msg:`Price for "${it.name}" is ${ratio.toFixed(1)}× the list default (${fmt2(it.cost)} → ${fmt2(v)}). Confirm it's intentional.` });
+  });
+  // conflicting bathroom scope
+  P.rooms.filter(r => r.type === 'bathroom').forEach(b => {
+    const reglaze = ['ba-07','ba-08','ba-09'].some(id => isChecked(b.id,'tub',id));
+    const tearout = ['ba-10','ba-11','ba-13'].some(id => isChecked(b.id,'tub',id));
+    if (reglaze && tearout) flags.push({ sev:'high', msg:`${b.name}: both a reglaze and a tear-out are selected on the tub/shower — that's double-counting. Pick one.` });
+  });
+  // deal/estimate mismatch
+  if ((+P.deal.arv) && grandTotal() === 0) flags.push({ sev:'low', msg:'Deal has an ARV but the repair estimate is $0 — the profit number is not yet trustworthy.' });
+  if (flags.length === 0) flags.push({ sev:'ok', msg:'No anomalies detected. Quantities and pricing look reasonable.' });
+  return flags;
+}
+
+/* ---- RAG-lite assistant: retrieve best KB answer + live estimate facts ---- */
+function assistantAnswer(qRaw){
+  const q = qRaw.toLowerCase();
+  // dynamic, computed intents first
+  const pr = progress();
+  if (/total|how much|cost so far|estimate/.test(q)) return `The running repair estimate is ${fmt(grandTotal())} across ${P.rooms.length} rooms (${pr.done}/${pr.total} groups reviewed).`;
+  if (/missing|left|next|what.*do|incomplete/.test(q)){
+    const cov = agentCoverage().filter(f => f.sev !== 'ok');
+    return cov.length ? 'Coverage check: ' + cov.map(f => f.msg).join(' ') : 'You\'ve reviewed every group — nothing outstanding.';
+  }
+  if (/biggest|most expensive|driver|largest/.test(q)){
+    let best = null;
+    P.rooms.forEach(r => ROOM_TYPES[r.type].groups.forEach(g => groupItemIds(g).forEach(id => {
+      const lt = lineTotal(r.id,g,id); if (lt > 0 && (!best || lt > best.lt)) best = { lt, name: itemById(id)?.name, room: r.name };
+    })));
+    return best ? `Your biggest line item is "${best.name}" in ${best.room} at ${fmt(best.lt)}.` : 'Nothing is selected yet, so there\'s no cost driver to report.';
+  }
+  if (/\bprofit\b|\bmargin\b|\broi\b|make money|worth it|max allowable|should i (buy|offer)/.test(q)){
+    const d = P.deal, arv=+d.arv||0, pur=+d.purchase||0, rep=grandTotal();
+    if (!arv||!pur) return 'Add ARV and purchase price on the Deal tab and I\'ll give you a profit projection and a GO/NO-GO call.';
+    const hold=(+d.weeks||0)*(+d.perWeek||0), sell=arv*((+d.sellPct||0)/100), profit=arv-(pur+rep+hold+sell);
+    return `Projected profit is ${fmt(profit)} (ARV ${fmt(arv)} − purchase ${fmt(pur)} − repairs ${fmt(rep)} − holding ${fmt(hold)} − selling ${fmt(sell)}). Max Allowable Offer by the 70% rule is ${fmt(arv*0.7-rep)}.`;
+  }
+  // retrieval over KB by keyword overlap
+  let best = null;
+  KB.forEach(e => {
+    const score = e.k.reduce((s,kw) => s + (q.includes(kw) ? 1 : 0), 0);
+    if (score > 0 && (!best || score > best.score)) best = { score, a: e.a };
+  });
+  if (best) return best.a;
+  return 'I can help with repair scope, costs, what\'s missing, photos/serials, and the deal math. Try: "what\'s the biggest cost", "what am I missing", or ask about HVAC, foundation, or the 70% rule.';
+}
+
+let CHAT = [{ role:'bot', text:'Hi — I\'m your estimate copilot. Ask me about scope, costs, the deal math, or tap an agent above to scan this walkthrough.' }];
+
+function viewCopilot(){
+  const cov = agentCoverage(), rec = agentRecommend(), ano = agentAnomaly();
+  const dot = s => ({high:'bg-red-500',med:'bg-amber-500',low:'bg-blue-400',ok:'bg-green-500'}[s] || 'bg-gray-300');
+  const findingRow = f => `<div class="flex gap-2.5 py-2 border-b border-gray-50 last:border-0">
+      <span class="w-2 h-2 rounded-full mt-1.5 flex-shrink-0 ${dot(f.sev)}"></span>
+      <span class="text-[13px] leading-snug text-gray-600">${esc(f.msg)}</span></div>`;
+  const agentCard = (icon,name,tag,findings) => `
+    <div class="bg-white rounded-2xl p-4 shadow-sm">
+      <div class="flex items-center gap-2 mb-1">
+        <span class="text-lg">${icon}</span>
+        <span class="font-bold text-[15px]">${name}</span>
+        <span class="ml-auto text-[10px] font-bold px-2 py-0.5 rounded-full bg-gray-100 text-gray-500">${tag}</span>
+      </div>
+      ${findings.map(findingRow).join('')}
+    </div>`;
+
+  return `
+  <div class="view px-4 py-4 space-y-3">
+    <div>
+      <h2 class="font-bold text-lg flex items-center gap-2">✨ AI Copilot</h2>
+      <p class="text-[12px] text-gray-400">Specialist agents scan this walkthrough on-device. No network needed.</p>
+    </div>
+
+    ${agentCard('🔎','Inspection Coverage','intake + validation', cov)}
+
+    <div class="bg-white rounded-2xl p-4 shadow-sm">
+      <div class="flex items-center gap-2 mb-2">
+        <span class="text-lg">💡</span><span class="font-bold text-[15px]">Recommendations</span>
+        <span class="ml-auto text-[10px] font-bold px-2 py-0.5 rounded-full bg-gray-100 text-gray-500">${rec.length} suggestion${rec.length!==1?'s':''}</span>
+      </div>
+      ${rec.length === 0 ? `<p class="text-[13px] text-gray-400 py-1">No suggestions right now — add some repairs and I\'ll spot commonly-paired work.</p>`
+        : rec.map(r => `<div class="flex items-center gap-2 py-2 border-b border-gray-50 last:border-0">
+            <div class="flex-1 min-w-0"><div class="text-[13px] font-semibold">${esc(r.title)} <span class="text-gray-400 font-normal">· ${fmt2(priceOf(r.target.id))}/${esc(itemById(r.target.id).unit)}</span></div>
+            <div class="text-[11px] text-gray-400 leading-snug">${esc(r.why)}</div></div>
+            <button data-act="rec" data-r="${r.target.rid}" data-g="${r.target.gid}" data-i="${r.target.id}" class="press flex-shrink-0 text-[12px] font-bold text-white bg-spark px-3 py-1.5 rounded-lg">Add</button>
+          </div>`).join('')}
+    </div>
+
+    ${agentCard('🛡️','Anomaly & Risk','outlier detection', ano)}
+
+    <div class="bg-white rounded-2xl shadow-sm overflow-hidden">
+      <div class="px-4 pt-3 pb-2 flex items-center gap-2 border-b border-gray-100"><span class="text-lg">💬</span><span class="font-bold text-[15px]">Assistant</span><span class="ml-auto text-[10px] text-gray-400">retrieval over repair guidelines</span></div>
+      <div id="chatlog" class="px-4 py-3 space-y-2 max-h-72 overflow-y-auto">
+        ${CHAT.map(m => m.role === 'bot'
+          ? `<div class="flex"><div class="bg-gray-100 rounded-2xl rounded-tl-sm px-3 py-2 text-[13px] max-w-[85%]">${esc(m.text)}</div></div>`
+          : `<div class="flex justify-end"><div class="bg-spark text-white rounded-2xl rounded-tr-sm px-3 py-2 text-[13px] max-w-[85%]">${esc(m.text)}</div></div>`).join('')}
+      </div>
+      <div class="flex gap-2 p-3 border-t border-gray-100">
+        <input id="chatin" placeholder="Ask about scope, costs, the deal…" class="flex-1 px-3 py-2.5 rounded-xl border border-gray-200 text-[14px] outline-none focus:border-spark" />
+        <button data-act="chatmic" class="press w-11 rounded-xl bg-gray-100 flex items-center justify-center" title="Voice">🎙️</button>
+        <button data-act="chatsend" class="press px-4 rounded-xl bg-ink text-white font-semibold text-sm">Send</button>
+      </div>
+      <div class="px-3 pb-3 flex gap-1.5 flex-wrap">
+        ${['What am I missing?','Biggest cost?','What\'s the profit?'].map(s => `<button data-act="chip" data-q="${esc(s)}" class="press text-[11px] bg-gray-100 text-gray-500 px-2.5 py-1 rounded-full font-medium">${esc(s)}</button>`).join('')}
+      </div>
+    </div>
+  </div>`;
+}
+
+/* ---- Bottom nav ---- */
+function bottomNav() {
+  const item = (tab, label, icon) => `
+    <button data-act="tab" data-tab="${tab}" class="press flex-1 flex flex-col items-center gap-0.5 py-2 ${UI.tab===tab?'text-spark':'text-gray-400'}">
+      ${icon}<span class="text-[10px] font-semibold">${label}</span>
+    </button>`;
+  return `
+  <nav class="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-md bg-white border-t border-gray-200 flex z-40" style="padding-bottom:env(safe-area-inset-bottom)">
+    ${item('estimate','Estimate','<svg width="22" height="22" viewBox="0 0 24 24" fill="none"><path d="M9 7h6M9 11h6M9 15h4M6 3h12a1 1 0 011 1v16a1 1 0 01-1 1H6a1 1 0 01-1-1V4a1 1 0 011-1z" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>')}
+    ${item('photos','Photos','<svg width="22" height="22" viewBox="0 0 24 24" fill="none"><path d="M3 7a2 2 0 012-2h2l1.5-2h7L18 5h1a2 2 0 012 2v11a2 2 0 01-2 2H5a2 2 0 01-2-2V7z" stroke="currentColor" stroke-width="1.8"/><circle cx="12" cy="12.5" r="3.5" stroke="currentColor" stroke-width="1.8"/></svg>')}
+    ${item('copilot','Copilot','<svg width="22" height="22" viewBox="0 0 24 24" fill="none"><path d="M12 3l1.6 4.4L18 9l-4.4 1.6L12 15l-1.6-4.4L6 9l4.4-1.6L12 3z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M18 14l.8 2.2L21 17l-2.2.8L18 20l-.8-2.2L15 17l2.2-.8L18 14z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg>')}
+    ${item('deal','Deal','<svg width="22" height="22" viewBox="0 0 24 24" fill="none"><path d="M4 19V5m0 14h16M8 16V9m4 7V6m4 10v-4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>')}
+    ${item('export','Export','<svg width="22" height="22" viewBox="0 0 24 24" fill="none"><path d="M12 3v12m0 0l-4-4m4 4l4-4M4 17v2a2 2 0 002 2h12a2 2 0 002-2v-2" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>')}
+  </nav>`;
+}
+
+/* =====================================================================
+   9. HOME (project list)
+   ===================================================================== */
+function renderHome() {
+  $app.innerHTML = `
+  <div class="view min-h-screen flex flex-col">
+    <header class="px-5 pt-12 pb-6 bg-ink text-white" style="padding-top:max(3rem,env(safe-area-inset-top))">
+      <img src="./spark-logo.png" class="h-7 w-auto mb-5" style="filter:brightness(0) invert(1)" onerror="this.style.display='none'" />
+      <h1 class="text-2xl font-extrabold leading-tight">Repair Estimator</h1>
+      <p class="text-gray-400 text-sm mt-1">Walk the property. Check the repairs. Know the number before you offer.</p>
+    </header>
+    <div class="flex-1 px-4 py-5 -mt-3 bg-[#f1f3f6] rounded-t-3xl">
+      <button data-act="new" class="press w-full py-4 mb-5 bg-spark text-white rounded-2xl font-bold text-lg shadow-lg shadow-spark/30">+ New Estimate</button>
+      ${projects.length === 0 ? `<p class="text-center text-gray-400 text-sm py-10">No saved estimates yet.<br/>Start your first walkthrough above.</p>` : `
+        <div class="text-[12px] font-semibold text-gray-400 uppercase mb-2">Saved estimates (${projects.length})</div>
+        <div class="space-y-2.5">
+          ${projects.map(p => {
+            const sP = P; P = p; const tot = grandTotal(); const pr = progress(); P = sP;
+            return `<div class="bg-white rounded-2xl p-4 shadow-sm flex items-center gap-3">
+              <button data-act="open" data-id="${p.id}" class="press flex-1 text-left min-w-0">
+                <div class="font-bold truncate">${esc(p.name)}</div>
+                <div class="text-[12px] text-gray-400">${pr.done}/${pr.total} groups · ${new Date(p.savedAt).toLocaleDateString()}</div>
+              </button>
+              <div class="text-right flex-shrink-0">
+                <div class="font-extrabold text-spark">${fmt(tot)}</div>
+                <button data-act="delproj" data-id="${p.id}" class="text-[11px] text-gray-300 font-semibold">delete</button>
+              </div>
+            </div>`;
+          }).join('')}
+        </div>`}
+      <div class="mt-6 text-center"><button data-act="globalprice" class="text-[12px] text-gray-400 font-semibold underline">Manage standard pricing</button></div>
+    </div>
+  </div>`;
+  bind();
+}
+
+/* =====================================================================
+   10. MODALS
+   ===================================================================== */
+const $modal = document.getElementById('modal');
+function closeModal() { $modal.classList.add('hidden'); $modal.innerHTML = ''; }
+function modal(html) {
+  $modal.classList.remove('hidden');
+  $modal.innerHTML = `
+  <div class="sheet-back fixed inset-0 bg-black/40 z-50 flex items-end justify-center" data-act="backdrop">
+    <div class="sheet bg-white w-full max-w-md rounded-t-3xl max-h-[88vh] overflow-y-auto" onclick="event.stopPropagation()">
+      <div class="sticky top-0 bg-white pt-3 pb-1 flex justify-center"><div class="w-10 h-1 bg-gray-300 rounded-full"></div></div>
+      ${html}
+    </div>
+  </div>`;
+  $modal.querySelector('[data-act="backdrop"]').addEventListener('click', closeModal);
+  bindModal();
+}
+
+function modalProjects() {
+  modal(`<div class="px-5 pb-8 pt-2">
+    <h3 class="font-bold text-lg mb-3">Switch estimate</h3>
+    <button data-m="new" class="press w-full py-3 mb-3 bg-spark text-white rounded-xl font-bold">+ New Estimate</button>
+    <div class="space-y-2">
+      ${projects.map(p => `<button data-m="open" data-id="${p.id}" class="press w-full text-left p-3 rounded-xl border ${p.id===P.id?'border-spark bg-spark-50':'border-gray-200'}">
+        <div class="font-semibold">${esc(p.name)}</div><div class="text-[12px] text-gray-400">${new Date(p.savedAt).toLocaleDateString()}</div>
+      </button>`).join('')}
+    </div>
+    <button data-m="rename" class="press w-full mt-4 py-2.5 border border-gray-200 rounded-xl font-semibold text-gray-600">Rename current</button>
+    <button data-m="home" class="press w-full mt-2 py-2.5 text-gray-400 font-semibold">All estimates</button>
+  </div>`);
+}
+
+function modalAddRoom() {
+  modal(`<div class="px-5 pb-8 pt-2">
+    <h3 class="font-bold text-lg mb-1">Add a room</h3>
+    <p class="text-[12px] text-gray-400 mb-3">Every house is different — build the structure that matches this one.</p>
+    <div class="grid grid-cols-2 gap-2.5">
+      ${ADDABLE.map(t => { const r = ROOM_TYPES[t];
+        const exists = r.single && P.rooms.some(x=>x.type===t);
+        return `<button data-m="room" data-t="${t}" ${exists?'disabled':''} class="press p-4 rounded-2xl border text-left ${exists?'opacity-40 border-gray-200':'border-gray-200 hover:border-spark'}">
+          <div class="text-2xl mb-1">${r.icon}</div>
+          <div class="font-semibold text-[14px]">${r.label}</div>
+          <div class="text-[11px] text-gray-400">${r.groups.length} groups${exists?' · added':''}</div>
+        </button>`; }).join('')}
+    </div>
+  </div>`);
+}
+
+function modalPrice(id) {
+  const it = itemById(id); if (!it) return;
+  const cur = priceOf(id);
+  modal(`<div class="px-5 pb-8 pt-2">
+    <h3 class="font-bold text-lg mb-1">Edit price</h3>
+    <p class="text-[13px] text-gray-500 mb-4">${esc(it.name)} <span class="text-gray-300">· default ${fmt2(it.cost)}/${esc(it.unit)}</span></p>
+    <label class="text-[12px] font-semibold text-gray-500">Unit cost</label>
+    <div class="relative mb-4 mt-1"><span class="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">$</span>
+      <input id="priceInput" value="${cur}" inputmode="decimal" class="w-full pl-7 pr-3 py-3 rounded-xl border-2 border-spark font-bold text-lg outline-none" /></div>
+    <button data-m="priceProj" data-i="${id}" class="press w-full py-3 bg-spark text-white rounded-xl font-bold mb-2">Save for this project only</button>
+    <button data-m="priceGlobal" data-i="${id}" class="press w-full py-3 bg-ink text-white rounded-xl font-bold mb-2">Update standard price (all projects)</button>
+    ${(P.priceOverrides[id]!=null||GLOBAL.prices[id]!=null)?`<button data-m="priceReset" data-i="${id}" class="press w-full py-2.5 text-gray-500 font-semibold">Reset to default (${fmt2(it.cost)})</button>`:''}
+  </div>`);
+  setTimeout(()=>{const el=document.getElementById('priceInput'); if(el){el.focus();el.select();}},100);
+}
+
+function modalAddItem(gid) {
+  modal(`<div class="px-5 pb-8 pt-2">
+    <h3 class="font-bold text-lg mb-1">Add custom item</h3>
+    <p class="text-[12px] text-gray-400 mb-4">Added to <b>${esc(GROUPS[gid].label)}</b> across all projects.</p>
+    <div class="space-y-3">
+      <div><label class="text-[12px] font-semibold text-gray-500">Item name</label><input id="ci_name" placeholder="e.g. Skylight replacement" class="w-full mt-1 px-3 py-2.5 rounded-xl border border-gray-200 outline-none focus:border-spark"/></div>
+      <div class="grid grid-cols-2 gap-3">
+        <div><label class="text-[12px] font-semibold text-gray-500">Unit cost</label><input id="ci_cost" inputmode="decimal" placeholder="0.00" class="w-full mt-1 px-3 py-2.5 rounded-xl border border-gray-200 outline-none focus:border-spark"/></div>
+        <div><label class="text-[12px] font-semibold text-gray-500">Unit</label><input id="ci_unit" placeholder="ea." class="w-full mt-1 px-3 py-2.5 rounded-xl border border-gray-200 outline-none focus:border-spark"/></div>
+      </div>
+    </div>
+    <button data-m="saveitem" data-g="${gid}" class="press w-full mt-5 py-3 bg-spark text-white rounded-xl font-bold">Add item</button>
+  </div>`);
+  setTimeout(()=>document.getElementById('ci_name')?.focus(),100);
+}
+
+function modalGlobalPrice() {
+  const edited = Object.keys(GLOBAL.prices);
+  modal(`<div class="px-5 pb-8 pt-2">
+    <h3 class="font-bold text-lg mb-1">Standard pricing</h3>
+    <p class="text-[12px] text-gray-400 mb-3">${edited.length} item(s) changed from list defaults. Changes apply to all projects.</p>
+    ${edited.length===0?`<p class="text-sm text-gray-400 py-4 text-center">No global overrides. Edit any item's price during a walkthrough and choose "Update standard price".</p>`:`
+      <div class="space-y-2">${edited.map(id=>{const it=itemById(id);return it?`<div class="flex items-center justify-between p-3 rounded-xl border border-gray-200">
+        <div class="min-w-0"><div class="font-semibold text-[14px] truncate">${esc(it.name)}</div><div class="text-[11px] text-gray-400">default ${fmt2(it.cost)} → <span class="text-spark font-semibold">${fmt2(GLOBAL.prices[id])}</span></div></div>
+        <button data-m="resetGlobal" data-i="${id}" class="press text-[12px] text-red-500 font-semibold flex-shrink-0">reset</button></div>`:''}).join('')}</div>`}
+  </div>`);
+}
+
+/* =====================================================================
+   11. EVENT BINDING
+   ===================================================================== */
+function on(act, fn) { return el => el.addEventListener(act === 'input' ? 'input' : 'click', fn); }
+
+function bind() {
+  $app.querySelectorAll('[data-act]').forEach(el => {
+    const a = el.dataset.act;
+    if (a === 'qtyin' || a === 'cap') {
+      el.addEventListener('change', handle);
+      el.addEventListener('click', e => e.stopPropagation());
+    } else if (a === 'deal') {
+      el.addEventListener('input', handle);
+    } else if (a === 'addphoto') {
+      el.addEventListener('change', handle);
+    } else {
+      el.addEventListener('click', handle);
+    }
+  });
+  const ci = document.getElementById('chatin');
+  if (ci) ci.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); sendChat(); } });
+  const log = document.getElementById('chatlog');
+  if (log) log.scrollTop = log.scrollHeight;
+}
+function bindModal() {
+  $modal.querySelectorAll('[data-m]').forEach(el => el.addEventListener('click', handleModal));
+}
+
+function handle(e) {
+  const el = e.currentTarget; const a = el.dataset.act; const d = el.dataset;
+  switch (a) {
+    case 'new': P = blankProject('Estimate ' + (projects.length + 1)); save(); render(); break;
+    case 'open': openProject(d.id); break;
+    case 'projects': modalProjects(); break;
+    case 'tab': UI.tab = d.tab; render(); break;
+    case 'room': UI.roomId = d.id; render(); break;
+    case 'addroom': modalAddRoom(); break;
+    case 'delroom': confirmDel('Remove this room and its selections?', () => removeRoom(d.id)); break;
+    case 'grp': UI.openGroups[d.k] = !UI.openGroups[d.k]; render(); break;
+    case 'nan': toggleNan(d.k, el.checked); break;
+    case 'chk': toggleCheck(d.r, d.g, d.i); break;
+    case 'qty': stepQty(d.r, d.g, d.i, +d.d); break;
+    case 'qtyin': setQty(d.r, d.g, d.i, el.value); break;
+    case 'price': modalPrice(d.i); break;
+    case 'additem': modalAddItem(d.g); break;
+    case 'delitem': confirmDel('Delete this line item from the catalog?', () => deleteItem(d.i)); break;
+    case 'addphoto': addPhotos(el.files); break;
+    case 'live': startLive(); break;
+    case 'capmic': voiceInput('cap_' + d.id); break;
+    case 'cap': setCaption(d.id, el.value); break;
+    case 'ocr': runOCR(d.id); break;
+    case 'delphoto': delPhoto(d.id); break;
+    case 'deal': P.deal[d.k] = el.value; save(); softUpdateDeal(); break;
+    case 'export': doExport(); break;
+    case 'delproj': confirmDel('Delete this estimate permanently?', () => delProject(d.id)); break;
+    case 'globalprice': modalGlobalPrice(); break;
+    case 'rec': applyRec(d.r, d.g, d.i); break;
+    case 'chatsend': sendChat(); break;
+    case 'chip': document.getElementById('chatin').value = d.q; sendChat(); break;
+    case 'chatmic': voiceInput('chatin'); break;
+  }
+}
+
+/* ---------- copilot actions ---------- */
+function applyRec(r, g, i) {
+  P.cells[cellKey(r, g, i)] = { q: 1 };
+  if (P.nan[nanKey(r, g)]) delete P.nan[nanKey(r, g)];
+  save(); render(); toast(itemById(i).name + ' added');
+}
+function sendChat() {
+  const el = document.getElementById('chatin'); if (!el) return;
+  const q = el.value.trim(); if (!q) return;
+  CHAT.push({ role: 'user', text: q });
+  CHAT.push({ role: 'bot', text: assistantAnswer(q) });
+  if (CHAT.length > 40) CHAT = CHAT.slice(-40);
+  render();
+  const log = document.getElementById('chatlog'); if (log) log.scrollTop = log.scrollHeight;
+  document.getElementById('chatin')?.focus();
+}
+/* Web Speech API dictation (graceful fallback when unsupported) */
+function voiceInput(targetId) {
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SR) { toast('Voice input not supported on this browser'); return; }
+  const rec = new SR(); rec.lang = 'en-US'; rec.interimResults = false; rec.maxAlternatives = 1;
+  toast('Listening…');
+  rec.onresult = (e) => {
+    const txt = e.results[0][0].transcript;
+    const el = document.getElementById(targetId);
+    if (el) { el.value = (el.value ? el.value + ' ' : '') + txt; el.focus(); }
+    if (targetId === 'chatin') sendChat();
+    else if (targetId.startsWith('cap_')) { setCaption(targetId.slice(4), el.value); toast('Caption: ' + txt); }
+  };
+  rec.onerror = () => toast('Could not capture audio');
+  try { rec.start(); } catch { toast('Voice unavailable'); }
+}
+function handleModal(e) {
+  const el = e.currentTarget; const m = el.dataset.m; const d = el.dataset;
+  switch (m) {
+    case 'new': closeModal(); P = blankProject('Estimate ' + (projects.length + 1)); save(); render(); break;
+    case 'open': closeModal(); openProject(d.id); break;
+    case 'home': closeModal(); P = null; setLS(LS.current,''); render(); break;
+    case 'rename': renameProject(); break;
+    case 'room': closeModal(); addRoom(P, d.t); break;
+    case 'priceProj': savePrice(d.i, 'project'); break;
+    case 'priceGlobal': savePrice(d.i, 'global'); break;
+    case 'priceReset': resetPrice(d.i); break;
+    case 'saveitem': saveCustomItem(d.g); break;
+    case 'resetGlobal': delete GLOBAL.prices[d.i]; saveGlobal(); modalGlobalPrice(); toast('Reset'); break;
+  }
+}
+
+/* ---------- action helpers ---------- */
+function toggleCheck(r, g, i) {
+  const k = cellKey(r, g, i);
+  if (P.cells[k]) delete P.cells[k];
+  else { P.cells[k] = { q: 1 }; if (P.nan[nanKey(r,g)]) delete P.nan[nanKey(r,g)]; }
+  save(); render();
+}
+function toggleNan(k, on) {
+  if (on) {
+    P.nan[k] = true;
+    // clear any checked items in that group
+    Object.keys(P.cells).forEach(ck => { if (ck.startsWith(k + '|')) delete P.cells[ck]; });
+  } else delete P.nan[k];
+  save(); render();
+}
+function stepQty(r, g, i, dlt) {
+  const k = cellKey(r, g, i); const c = P.cells[k] || { q: 1 };
+  c.q = Math.max(0, Math.round(((c.q || 1) + dlt) * 100) / 100);
+  P.cells[k] = c; save(); render();
+}
+function setQty(r, g, i, val) {
+  const k = cellKey(r, g, i); const n = parseFloat(val);
+  P.cells[k] = { q: isNaN(n) ? 0 : Math.max(0, n) }; save(); render();
+}
+function savePrice(id, scope) {
+  const v = parseFloat(document.getElementById('priceInput').value);
+  if (isNaN(v) || v < 0) { toast('Enter a valid price'); return; }
+  if (scope === 'project') { P.priceOverrides[id] = v; save(); }
+  else { GLOBAL.prices[id] = v; saveGlobal(); }
+  closeModal(); render(); toast(scope === 'global' ? 'Standard price updated' : 'Price set for project');
+}
+function resetPrice(id) { delete P.priceOverrides[id]; delete GLOBAL.prices[id]; save(); saveGlobal(); closeModal(); render(); toast('Reset to default'); }
+function saveCustomItem(gid) {
+  const name = document.getElementById('ci_name').value.trim();
+  const cost = parseFloat(document.getElementById('ci_cost').value);
+  const unit = document.getElementById('ci_unit').value.trim() || 'ea.';
+  if (!name) { toast('Enter a name'); return; }
+  if (isNaN(cost) || cost < 0) { toast('Enter a valid cost'); return; }
+  const id = 'cu-' + Date.now().toString(36);
+  GLOBAL.custom.push({ id, name, cost, unit, groupId: gid }); saveGlobal();
+  closeModal(); render(); toast('Item added');
+}
+function deleteItem(id) {
+  if (!GLOBAL.deleted.includes(id)) GLOBAL.deleted.push(id);
+  GLOBAL.custom = GLOBAL.custom.filter(c => c.id !== id);
+  saveGlobal();
+  // purge from every project cell
+  Object.keys(P.cells).forEach(k => { if (k.endsWith('|' + id)) delete P.cells[k]; });
+  save(); render(); toast('Item deleted');
+}
+function renameProject() {
+  const name = prompt('Estimate name', P.name);
+  if (name && name.trim()) { P.name = name.trim(); save(); closeModal(); render(); }
+}
+function delProject(id) {
+  projects = projects.filter(p => p.id !== id);
+  setLS(LS.projects, projects);
+  if (P && P.id === id) { P = null; setLS(LS.current, ''); }
+  render();
+}
+function softUpdateDeal() {
+  // lightweight: re-render only the deal view to keep inputs focused
+  if (UI.tab !== 'deal') return;
+  clearTimeout(softUpdateDeal._t);
+  softUpdateDeal._t = setTimeout(() => {
+    const main = $app.querySelector('main'); if (!main) return;
+    const active = document.activeElement; const k = active?.dataset?.k; const pos = active?.selectionStart;
+    main.innerHTML = viewDeal(); bind();
+    if (k) { const ne = main.querySelector(`[data-k="${k}"]`); if (ne) { ne.focus(); try{ne.setSelectionRange(pos,pos);}catch{} } }
+    document.getElementById('grand').textContent = fmt(grandTotal());
+  }, 120);
+}
+
+/* ---------- photos ---------- */
+function addPhotos(files) {
+  if (!files || !files.length) return;
+  let pending = files.length;
+  [...files].forEach(f => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      compress(reader.result, 1280, 0.7).then(data => {
+        P.photos.push({ id: 'ph' + Date.now().toString(36) + Math.random().toString(36).slice(2,5), data, caption: '', serial: '' });
+        if (--pending === 0) { save(); render(); toast('Photo added'); }
+      });
+    };
+    reader.readAsDataURL(f);
+  });
+}
+function compress(dataUrl, maxW, q) {
+  return new Promise(res => {
+    const img = new Image();
+    img.onload = () => {
+      const scale = Math.min(1, maxW / img.width);
+      const c = document.createElement('canvas');
+      c.width = img.width * scale; c.height = img.height * scale;
+      c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+      res(c.toDataURL('image/jpeg', q));
+    };
+    img.onerror = () => res(dataUrl);
+    img.src = dataUrl;
+  });
+}
+function setCaption(id, v) { const ph = P.photos.find(p => p.id === id); if (ph) { ph.caption = v; save(); } }
+function delPhoto(id) { P.photos = P.photos.filter(p => p.id !== id); save(); render(); }
+
+/* ---------- live video capture (camera walkthrough → grab frames) ---------- */
+let _liveStream = null;
+async function startLive() {
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) { toast('Camera not available — use Photo / upload'); return; }
+  const ov = document.createElement('div');
+  ov.id = 'liveOverlay';
+  ov.className = 'fixed inset-0 z-[70] bg-black flex flex-col';
+  ov.innerHTML = `
+    <video id="liveVid" autoplay playsinline muted class="flex-1 w-full object-cover"></video>
+    <div id="liveCount" class="absolute top-4 left-1/2 -translate-x-1/2 bg-black/60 text-white text-sm font-semibold px-3 py-1 rounded-full" style="top:max(1rem,env(safe-area-inset-top))">0 frames captured</div>
+    <div class="absolute bottom-0 inset-x-0 flex items-center justify-around p-6" style="padding-bottom:max(1.5rem,env(safe-area-inset-bottom))">
+      <button id="liveDone" class="text-white font-semibold text-[15px] px-4 py-2">Done</button>
+      <button id="liveSnap" class="w-18 h-18 rounded-full bg-white ring-4 ring-white/40" style="width:72px;height:72px"></button>
+      <button id="liveMic" class="text-white text-2xl px-4 py-2" title="Voice note">🎙️</button>
+    </div>`;
+  document.body.appendChild(ov);
+  try {
+    _liveStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' }, audio: false });
+    document.getElementById('liveVid').srcObject = _liveStream;
+  } catch (e) { toast('Camera permission denied'); stopLive(); return; }
+  let count = 0;
+  document.getElementById('liveSnap').onclick = () => {
+    const v = document.getElementById('liveVid');
+    const c = document.createElement('canvas');
+    c.width = v.videoWidth; c.height = v.videoHeight;
+    c.getContext('2d').drawImage(v, 0, 0);
+    compress(c.toDataURL('image/jpeg', 0.8), 1280, 0.7).then(data => {
+      P.photos.push({ id: 'ph' + Date.now().toString(36) + Math.random().toString(36).slice(2,5), data, caption: 'Live frame ' + new Date().toLocaleTimeString(), serial: '' });
+      save();
+      count++; const cc = document.getElementById('liveCount'); if (cc) cc.textContent = count + ' frame' + (count!==1?'s':'') + ' captured';
+      const b = document.getElementById('liveSnap'); if (b) { b.style.transform = 'scale(.85)'; setTimeout(() => b.style.transform = '', 120); }
+    });
+  };
+  document.getElementById('liveMic').onclick = () => liveVoiceNote();
+  document.getElementById('liveDone').onclick = () => { stopLive(); render(); toast(count ? count + ' frames saved' : 'Capture ended'); };
+}
+function stopLive() {
+  if (_liveStream) { _liveStream.getTracks().forEach(t => t.stop()); _liveStream = null; }
+  document.getElementById('liveOverlay')?.remove();
+}
+/* voice note during live capture → caption the most recent frame */
+function liveVoiceNote() {
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SR) { toast('Voice not supported here'); return; }
+  const rec = new SR(); rec.lang = 'en-US'; rec.interimResults = false;
+  toast('Listening… describe what you see');
+  rec.onresult = (e) => {
+    const txt = e.results[0][0].transcript;
+    const last = P.photos[P.photos.length - 1];
+    if (last) { last.caption = txt; save(); toast('Note saved: ' + txt); }
+    else toast('Capture a frame first, then add a note');
+  };
+  rec.onerror = () => toast('Could not capture audio');
+  try { rec.start(); } catch { toast('Voice unavailable'); }
+}
+
+/* serial-number OCR via Tesseract (lazy-loaded) */
+function loadTesseract() {
+  return new Promise((res, rej) => {
+    if (window.Tesseract) return res();
+    const s = document.createElement('script');
+    s.src = 'https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js';
+    s.onload = res; s.onerror = rej; document.head.appendChild(s);
+  });
+}
+async function runOCR(id) {
+  const ph = P.photos.find(p => p.id === id); if (!ph) return;
+  toast('Scanning… (first scan downloads OCR engine)');
+  try {
+    await loadTesseract();
+    const { data } = await Tesseract.recognize(ph.data, 'eng');
+    const text = (data.text || '').toUpperCase();
+    // serial heuristics: labelled serial, else longest alphanumeric token
+    let serial = '';
+    const lbl = text.match(/(?:SERIAL|SER|S\/N|SN|MODEL|MFG)[^A-Z0-9]{0,4}([A-Z0-9][A-Z0-9\-]{4,})/);
+    if (lbl) serial = lbl[1];
+    else {
+      const toks = text.replace(/[^A-Z0-9\s\-]/g, ' ').split(/\s+/).filter(t => t.length >= 6 && /[0-9]/.test(t) && /[A-Z]/.test(t));
+      toks.sort((a, b) => b.length - a.length); serial = toks[0] || '';
+    }
+    ph.serial = serial || '(none found)';
+    save(); render();
+    toast(serial ? 'Serial: ' + serial : 'No serial detected');
+  } catch (err) {
+    toast('OCR unavailable offline (needs first online load)');
+  }
+}
+
+/* ---------- export ZIP (Excel + photos) ---------- */
+async function doExport() {
+  if (UI.busy) return; UI.busy = true;
+  toast('Building ZIP…');
+  try {
+    const wb = XLSX.utils.book_new();
+    const rows = [
+      ['SPARK EQUITY GROUP — REPAIR ESTIMATE'],
+      ['Project', P.name],
+      ['Address', P.address || '—'],
+      ['Date', new Date().toLocaleString()],
+      [],
+      ['Room', 'Section', 'Group', 'Item', 'Qty', 'Unit', 'Unit Cost', 'Line Total']
+    ];
+    let grand = 0;
+    P.rooms.forEach(r => {
+      const t = ROOM_TYPES[r.type];
+      t.groups.forEach(g => {
+        groupItemIds(g).forEach(id => {
+          if (!isChecked(r.id, g, id)) return;
+          const it = itemById(id); const c = P.cells[cellKey(r.id, g, id)];
+          const lt = lineTotal(r.id, g, id); grand += lt;
+          rows.push([r.name, t.section, GROUPS[g].label, it.name, c.q, it.unit, priceOf(id), lt]);
+        });
+      });
+    });
+    rows.push([]);
+    rows.push(['', '', '', '', '', '', 'GRAND TOTAL', grand]);
+    const ws = XLSX.utils.aoa_to_sheet(rows);
+    ws['!cols'] = [{wch:16},{wch:20},{wch:22},{wch:38},{wch:6},{wch:12},{wch:12},{wch:14}];
+    XLSX.utils.book_append_sheet(wb, ws, 'Estimate');
+
+    // Deal analysis sheet
+    const d = P.deal, arv = +d.arv||0, pur = +d.purchase||0, hold = (+d.weeks||0)*(+d.perWeek||0), sell = arv*((+d.sellPct||0)/100);
+    const tc = pur+grand+hold+sell, profit = arv-tc;
+    const dws = XLSX.utils.aoa_to_sheet([
+      ['DEAL ANALYSIS'], [],
+      ['After-Repair Value', arv], ['Purchase Price', pur], ['Repair Estimate', grand],
+      ['Holding Costs', hold], ['Selling Costs', sell], ['Total Cost Basis', tc],
+      ['Projected Profit', profit], ['Return on Cost', tc?(profit/tc):0],
+      ['70% Rule Max Offer', arv*0.7-grand]
+    ]);
+    dws['!cols']=[{wch:24},{wch:16}];
+    XLSX.utils.book_append_sheet(wb, dws, 'Deal Analysis');
+
+    const xlsxBuf = XLSX.write(wb, { type: 'array', bookType: 'xlsx' });
+
+    const zip = new JSZip();
+    const safe = P.name.replace(/[^\w\-]+/g, '_');
+    zip.file(`${safe}_estimate.xlsx`, xlsxBuf);
+    if (P.photos.length) {
+      const pf = zip.folder('photos');
+      P.photos.forEach((ph, i) => {
+        const b64 = ph.data.split(',')[1];
+        const nm = (ph.caption ? ph.caption.replace(/[^\w\-]+/g,'_') : `photo_${i+1}`) + (ph.serial && ph.serial!=='(none found)' ? `_SN-${ph.serial.replace(/[^\w\-]+/g,'')}` : '') + '.jpg';
+        pf.file(nm, b64, { base64: true });
+      });
+    }
+    const blob = await zip.generateAsync({ type: 'blob' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = `${safe}_${new Date().toISOString().slice(0,10)}.zip`;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 4000);
+    toast('ZIP downloaded ✓');
+  } catch (err) {
+    console.error(err); toast('Export failed: ' + err.message);
+  } finally { UI.busy = false; }
+}
+
+/* ---------- misc UI ---------- */
+let _toastT;
+function toast(msg) {
+  const t = document.getElementById('toast');
+  t.className = 'toast fixed left-1/2 bottom-24 z-[60] bg-ink text-white text-sm font-semibold px-4 py-2.5 rounded-full shadow-lg';
+  t.textContent = msg; t.classList.remove('hidden');
+  clearTimeout(_toastT); _toastT = setTimeout(() => t.classList.add('hidden'), 2200);
+}
+function confirmDel(msg, fn) {
+  modal(`<div class="px-5 pb-8 pt-2 text-center">
+    <div class="text-3xl mb-2">⚠️</div>
+    <p class="font-semibold mb-5">${msg}</p>
+    <button id="cfd" class="press w-full py-3 bg-red-500 text-white rounded-xl font-bold mb-2">Delete</button>
+    <button data-act="backdrop" onclick="event.target.closest('#modal')&&(document.getElementById('modal').classList.add('hidden'),document.getElementById('modal').innerHTML='')" class="press w-full py-2.5 text-gray-500 font-semibold">Cancel</button>
+  </div>`);
+  document.getElementById('cfd').addEventListener('click', () => { closeModal(); fn(); });
+}
+
+/* =====================================================================
+   12. BOOT + PWA
+   ===================================================================== */
+function boot() {
+  const curId = j(LS.current, '');
+  if (curId && projects.find(p => p.id === curId)) openProject(curId);
+  else render();
+}
+boot();
+
+if ('serviceWorker' in navigator) {
+  let _refreshed = false;
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (_refreshed) return; _refreshed = true; location.reload();
+  });
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('./sw.js').then(reg => {
+      reg.update();
+      reg.addEventListener('updatefound', () => {
+        const nw = reg.installing;
+        nw && nw.addEventListener('statechange', () => {
+          if (nw.state === 'installed' && navigator.serviceWorker.controller) nw.postMessage('skipWaiting');
+        });
+      });
+    }).catch(()=>{});
+  });
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,10 @@
+# Confidential contest materials — do NOT publish (per brief)
+Contest Briefing.docx
+reference-example.html
+Pricing List.csv
+
+# OS
+.DS_Store
+
+# Local dev tooling
+.claude/
