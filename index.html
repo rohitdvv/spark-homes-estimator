@@ -469,6 +469,28 @@ function viewPhotos() {
   </div>`;
 }
 
+/* ---- Deal Analyzer: profit waterfall (how the sale price splits) ---- */
+function dealWaterfall(arv, purchase, repairs, holding, selling, totalCost, profit){
+  const denom = Math.max(arv, totalCost) || 1;
+  const pct = v => Math.max(0, Math.min(100, v / denom * 100));
+  const seg = (val, color) => val > 0 ? `<div class="${color} h-full" style="width:${pct(val)}%"></div>` : '';
+  const chip = (color, label) => `<span class="flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-sm ${color}"></span>${label}</span>`;
+  return `
+  <div class="bg-white rounded-2xl p-4 shadow-sm">
+    <div class="text-[12px] font-semibold text-gray-400 uppercase mb-2">Where the sale price goes</div>
+    <div class="relative h-7 rounded-lg overflow-hidden bg-gray-100 flex">
+      ${seg(purchase,'bg-gray-400')}${seg(repairs,'bg-spark')}${seg(holding,'bg-amber-300')}${seg(selling,'bg-gray-300')}${profit>0?`<div class="bg-green-500 h-full" style="width:${pct(profit)}%"></div>`:''}
+      ${arv>0 && profit<0 ? `<div class="absolute top-0 bottom-0 w-0.5 bg-ink" style="left:${pct(arv)}%" title="ARV"></div>` : ''}
+    </div>
+    <div class="flex flex-wrap gap-x-3 gap-y-1 mt-2 text-[10px] text-gray-500">
+      ${chip('bg-gray-400','Purchase')}${chip('bg-spark','Repairs')}${chip('bg-amber-300','Holding')}${chip('bg-gray-300','Selling')}${chip(profit>=0?'bg-green-500':'bg-red-500', profit>=0?'Profit':'Loss')}
+    </div>
+    ${(arv && purchase)
+      ? `<p class="text-[11px] text-gray-400 mt-2 leading-snug">Of the <span class="font-semibold text-gray-600">${fmt(arv)}</span> sale price, <span class="font-semibold text-gray-600">${fmt(totalCost)}</span> is cost, leaving <span class="font-bold ${profit>=0?'text-green-600':'text-red-500'}">${fmt(Math.abs(profit))} ${profit>=0?'profit':'loss'}</span>.</p>`
+      : `<p class="text-[11px] text-gray-400 mt-2">Enter ARV and purchase price to see the split.</p>`}
+  </div>`;
+}
+
 /* ---- Deal Analyzer (creative addition) ---- */
 function viewDeal() {
   const d = P.deal; const repairs = grandTotal();
@@ -482,7 +504,7 @@ function viewDeal() {
   let verdict, vc, vmsg;
   if (!arv || !purchase) { verdict='Enter numbers'; vc='bg-gray-100 text-gray-500'; vmsg='Add ARV and purchase price to analyze the deal.'; }
   else if (profit >= 25000 && roi >= 15) { verdict='GO'; vc='bg-green-100 text-green-700'; vmsg='Healthy margin. Numbers support an offer.'; }
-  else if (profit > 0) { verdict='CAUTION'; vc='bg-amber-100 text-amber-700'; vmsg='Thin margin — recheck repairs and holding time.'; }
+  else if (profit > 0) { verdict='CAUTION'; vc='bg-amber-100 text-amber-700'; vmsg='Thin margin. Recheck repairs and holding time.'; }
   else { verdict='NO-GO'; vc='bg-red-100 text-red-700'; vmsg='Projected loss at this price. Offer lower or walk.'; }
 
   const row = (l, v, sub) => `<div class="flex justify-between items-baseline py-2 border-b border-gray-100"><span class="text-gray-500 text-[13px]">${l}${sub?`<span class="block text-[10px] text-gray-300">${sub}</span>`:''}</span><span class="font-semibold">${v}</span></div>`;
@@ -510,6 +532,8 @@ function viewDeal() {
       <p class="text-[12px] mt-1 font-medium opacity-90">${vmsg}</p>
     </div>
 
+    ${dealWaterfall(arv, purchase, repairs, holding, selling, totalCost, profit)}
+
     <div class="bg-white rounded-2xl p-4 shadow-sm">
       ${row('Repair estimate', fmt(repairs), 'live from this walkthrough')}
       ${row('Purchase price', fmt(purchase))}
@@ -521,7 +545,7 @@ function viewDeal() {
 
     <div class="bg-ink text-white rounded-2xl p-4">
       <div class="flex justify-between items-center">
-        <div><div class="text-[11px] text-gray-400 font-semibold">70% RULE — Max Allowable Offer</div><div class="text-[10px] text-gray-500">ARV × 70% − repairs</div></div>
+        <div><div class="text-[11px] text-gray-400 font-semibold">70% RULE: Max Allowable Offer</div><div class="text-[10px] text-gray-500">ARV × 70% − repairs</div></div>
         <div class="font-extrabold text-2xl text-spark-500">${fmt(mao)}</div>
       </div>
     </div>
