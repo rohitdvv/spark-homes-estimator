@@ -944,6 +944,28 @@ function modalAddRoom() {
   </div>`);
 }
 
+/* ---- New estimate: name the walkthrough by the property address ---- */
+function modalNewEstimate() {
+  modal(`<div class="px-5 pb-8 pt-2">
+    <h3 class="font-bold text-lg mb-1">New estimate</h3>
+    <p class="text-[12px] text-gray-400 mb-3">Name this walkthrough by the property address.</p>
+    <input id="newAddr" placeholder="e.g. 1423 Oak St, Dallas TX" autocomplete="off" enterkeyhint="go"
+      class="w-full px-3 py-3 rounded-xl border border-gray-200 font-semibold outline-none focus:border-spark mb-3" />
+    <button data-m="createest" class="press w-full py-3 bg-spark text-white rounded-xl font-bold">Start walkthrough</button>
+    <button data-m="createskip" class="press w-full mt-2 py-2.5 text-gray-400 font-semibold">Skip — I'll name it later</button>
+  </div>`);
+  setTimeout(() => {
+    const el = document.getElementById('newAddr');
+    if (el) { el.focus(); el.addEventListener('keydown', ev => { if (ev.key === 'Enter') { ev.preventDefault(); createEstimate(el.value); } }); }
+  }, 120);
+}
+function createEstimate(addr) {
+  const a = (addr || '').trim();
+  P = blankProject(a || ('Estimate ' + (projects.length + 1)));
+  P.address = a;
+  save(); closeModal(); render();
+}
+
 function modalPrice(id) {
   const it = itemById(id); if (!it) return;
   const cur = priceOf(id);
@@ -1019,7 +1041,7 @@ function bindModal() {
 function handle(e) {
   const el = e.currentTarget; const a = el.dataset.act; const d = el.dataset;
   switch (a) {
-    case 'new': P = blankProject('Estimate ' + (projects.length + 1)); save(); render(); break;
+    case 'new': modalNewEstimate(); break;
     case 'open': openProject(d.id); break;
     case 'projects': modalProjects(); break;
     case 'tab': UI.tab = d.tab; render(); break;
@@ -1076,11 +1098,18 @@ async function sendChat() {
   document.getElementById('chatin')?.focus();
 }
 /* Web Speech API dictation (graceful fallback when unsupported) */
+let _rec = null;
 function voiceInput(targetId) {
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-  if (!SR) { toast('Voice input not supported on this browser'); return; }
-  const rec = new SR(); rec.lang = 'en-US'; rec.interimResults = false; rec.maxAlternatives = 1;
-  toast('Listening…');
+  if (!SR) { toast('Voice input isn\'t supported in this browser — try Chrome, or just type.', 4500); return; }
+  if (_rec) { try { _rec.stop(); } catch (e) {} _rec = null; return; } // tap again while listening → stop
+  const rec = new SR(); _rec = rec;
+  rec.lang = 'en-US'; rec.interimResults = false; rec.maxAlternatives = 1;
+  const btn = targetId === 'chatin'
+    ? document.querySelector('[data-act="chatmic"]')
+    : document.querySelector('[data-act="capmic"][data-id="' + targetId.slice(4) + '"]');
+  const listening = on => { if (btn) { btn.classList.toggle('bg-gray-100', !on); btn.classList.toggle('bg-red-500', on); btn.classList.toggle('animate-pulse', on); } };
+  rec.onstart = () => { listening(true); toast('Listening… speak now', 3000); };
   rec.onresult = (e) => {
     const txt = e.results[0][0].transcript;
     const el = document.getElementById(targetId);
@@ -1088,13 +1117,26 @@ function voiceInput(targetId) {
     if (targetId === 'chatin') sendChat();
     else if (targetId.startsWith('cap_')) { setCaption(targetId.slice(4), el.value); toast('Caption: ' + txt); }
   };
-  rec.onerror = () => toast('Could not capture audio');
-  try { rec.start(); } catch { toast('Voice unavailable'); }
+  rec.onerror = (e) => {
+    const msg = {
+      'not-allowed': 'Microphone blocked. Tap the lock / “aA” icon in the address bar → allow Microphone, then retry.',
+      'service-not-allowed': 'Microphone blocked. Allow mic access in your browser settings, then retry.',
+      'no-speech': 'Didn\'t catch anything — tap the mic and speak clearly.',
+      'audio-capture': 'No microphone found on this device.',
+      'network': 'Voice needs a connection — speech is processed online.',
+      'aborted': ''
+    }[e.error] || 'Voice input failed — type your question instead.';
+    if (msg) toast(msg, 5000);
+  };
+  rec.onend = () => { listening(false); _rec = null; };
+  try { rec.start(); } catch (e) { listening(false); _rec = null; toast('Voice unavailable — type instead.', 3000); }
 }
 function handleModal(e) {
   const el = e.currentTarget; const m = el.dataset.m; const d = el.dataset;
   switch (m) {
-    case 'new': closeModal(); P = blankProject('Estimate ' + (projects.length + 1)); save(); render(); break;
+    case 'new': modalNewEstimate(); break;
+    case 'createest': createEstimate(document.getElementById('newAddr') ? document.getElementById('newAddr').value : ''); break;
+    case 'createskip': createEstimate(''); break;
     case 'open': closeModal(); openProject(d.id); break;
     case 'home': closeModal(); P = null; setLS(LS.current,''); render(); break;
     case 'rename': renameProject(); break;
@@ -1158,8 +1200,8 @@ function deleteItem(id) {
   save(); render(); toast('Item deleted');
 }
 function renameProject() {
-  const name = prompt('Estimate name', P.name);
-  if (name && name.trim()) { P.name = name.trim(); save(); closeModal(); render(); }
+  const name = prompt('Property address / estimate name', P.name);
+  if (name && name.trim()) { P.name = name.trim(); if (!P.address) P.address = name.trim(); save(); closeModal(); render(); }
 }
 function delProject(id) {
   projects = projects.filter(p => p.id !== id);
