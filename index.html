@@ -532,6 +532,8 @@ function viewDeal() {
       <p class="text-[12px] mt-1 font-medium opacity-90">${vmsg}</p>
     </div>
 
+    ${(arv && purchase) ? `<div class="bg-white rounded-2xl p-4 shadow-sm">${dealGauge(roi)}</div>` : ''}
+
     ${dealWaterfall(arv, purchase, repairs, holding, selling, totalCost, profit)}
 
     <div class="bg-white rounded-2xl p-4 shadow-sm">
@@ -550,6 +552,83 @@ function viewDeal() {
       </div>
     </div>
   </div>`;
+}
+
+/* =========================================================
+   Data visuals — offline, inline SVG / CSS, no libraries.
+   ========================================================= */
+const VIZ_COLORS = ['#d05000','#0f172a','#16a34a','#f59e0b','#0ea5e9','#a855f7','#ef4444','#14b8a6','#e11d48','#7c3aed'];
+const fmtK = n => { n = Math.round(n); return Math.abs(n) >= 1000 ? '$' + (n/1000).toFixed(Math.abs(n) >= 10000 ? 0 : 1) + 'k' : '$' + n; };
+
+/* Donut: cost share by category */
+function donutChart(entries){
+  const data = entries.filter(e => e.value > 0);
+  const total = data.reduce((s,e)=>s+e.value,0);
+  if (total <= 0) return `<p class="text-sm text-gray-400 py-2">Nothing selected yet.</p>`;
+  const R=52, SW=20, C=2*Math.PI*R; let off=0;
+  const rings = data.map((e,i)=>{
+    const len = e.value/total*C;
+    const c = `<circle cx="70" cy="70" r="${R}" fill="none" stroke="${VIZ_COLORS[i%VIZ_COLORS.length]}" stroke-width="${SW}" stroke-dasharray="${len.toFixed(2)} ${(C-len).toFixed(2)}" stroke-dashoffset="${(-off).toFixed(2)}" transform="rotate(-90 70 70)"/>`;
+    off += len; return c;
+  }).join('');
+  const legend = data.map((e,i)=>`<div class="flex items-center gap-2 text-[12px]">
+      <span class="w-2.5 h-2.5 rounded-sm flex-shrink-0" style="background:${VIZ_COLORS[i%VIZ_COLORS.length]}"></span>
+      <span class="flex-1 text-gray-600 truncate">${esc(e.label)}</span>
+      <span class="font-semibold whitespace-nowrap">${fmt(e.value)}</span>
+      <span class="text-gray-400 w-8 text-right">${Math.round(e.value/total*100)}%</span>
+    </div>`).join('');
+  return `<div class="flex items-center gap-3">
+      <svg viewBox="0 0 140 140" class="w-28 h-28 flex-shrink-0">${rings}
+        <text x="70" y="67" text-anchor="middle" fill="#0f172a" style="font-size:16px;font-weight:800">${fmtK(total)}</text>
+        <text x="70" y="83" text-anchor="middle" fill="#94a3b8" style="font-size:9px;font-weight:700;letter-spacing:.08em">TOTAL</text>
+      </svg>
+      <div class="flex-1 space-y-1.5 min-w-0">${legend}</div>
+    </div>`;
+}
+
+/* Gauge: return-on-cost speedometer */
+function dealGauge(roi){
+  const cx=110, cy=104, r=80, sw=16, min=-20, max=60;
+  const ang = v => 180 - (Math.max(min,Math.min(max,v))-min)/(max-min)*180;
+  const pt = (deg, rad) => [ (cx+rad*Math.cos(deg*Math.PI/180)).toFixed(2), (cy-rad*Math.sin(deg*Math.PI/180)).toFixed(2) ];
+  const arc = (v1,v2,color) => { const [x1,y1]=pt(ang(v1),r),[x2,y2]=pt(ang(v2),r); return `<path d="M ${x1} ${y1} A ${r} ${r} 0 0 1 ${x2} ${y2}" fill="none" stroke="${color}" stroke-width="${sw}"/>`; };
+  const [nx,ny] = pt(ang(roi), r-4);
+  const color = roi>=15 ? '#16a34a' : roi>0 ? '#f59e0b' : '#ef4444';
+  return `<svg viewBox="0 0 220 124" class="w-full" style="max-height:150px">
+    ${arc(min,-0.4,'#ef4444')}${arc(0.4,14.6,'#f59e0b')}${arc(15,max,'#16a34a')}
+    <line x1="${cx}" y1="${cy}" x2="${nx}" y2="${ny}" stroke="#0f172a" stroke-width="3.5" stroke-linecap="round"/>
+    <circle cx="${cx}" cy="${cy}" r="6" fill="#0f172a"/>
+    <text x="${cx}" y="${cy-24}" text-anchor="middle" fill="${color}" style="font-size:26px;font-weight:800">${roi.toFixed(0)}%</text>
+    <text x="${cx}" y="${cy-9}" text-anchor="middle" fill="#94a3b8" style="font-size:9.5px;font-weight:700;letter-spacing:.05em">RETURN ON COST</text>
+    <text x="20" y="120" fill="#94a3b8" style="font-size:9px">-20%</text>
+    <text x="184" y="120" fill="#94a3b8" style="font-size:9px">60%+</text>
+  </svg>`;
+}
+
+/* Treemap: rooms sized by cost (squarified) */
+function treemap(entries){
+  const data = entries.filter(e=>e.value>0).sort((a,b)=>b.value-a.value);
+  if (!data.length) return `<p class="text-sm text-gray-400 py-2">Nothing selected yet.</p>`;
+  const NW=100, NH=62, total=data.reduce((s,e)=>s+e.value,0);
+  const items = data.map(e=>({ label:e.label, value:e.value, area:e.value/total*NW*NH }));
+  const rects=[]; let x=0,y=0,w=NW,h=NH, rest=items.slice(), row=[];
+  const worst=(arr,side)=>{ const s=arr.reduce((a,b)=>a+b,0),mx=Math.max(...arr),mn=Math.min(...arr); return Math.max(side*side*mx/(s*s), s*s/(side*side*mn)); };
+  const lay=(rw)=>{ const sum=rw.reduce((a,b)=>a+b.area,0);
+    if (w>=h){ const cw=sum/h; let yy=y; rw.forEach(r=>{ const ih=r.area/cw; rects.push({...r,x,y:yy,w:cw,h:ih}); yy+=ih; }); x+=cw; w-=cw; }
+    else { const rh=sum/w; let xx=x; rw.forEach(r=>{ const iw=r.area/rh; rects.push({...r,x:xx,y,w:iw,h:rh}); xx+=iw; }); y+=rh; h-=rh; } };
+  while (rest.length){ const side=Math.min(w,h), next=rest[0];
+    if (!row.length || worst(row.map(r=>r.area),side) >= worst([...row,next].map(r=>r.area),side)) row.push(rest.shift());
+    else { lay(row); row=[]; } }
+  if (row.length) lay(row);
+  const tiles = rects.map((r,i)=>{
+    const small = (r.w/NW*100) < 24 || (r.h/NH*100) < 18;
+    return `<div class="absolute" style="left:${(r.x/NW*100).toFixed(2)}%;top:${(r.y/NH*100).toFixed(2)}%;width:${(r.w/NW*100).toFixed(2)}%;height:${(r.h/NH*100).toFixed(2)}%;padding:1.5px">
+      <div class="w-full h-full rounded-md p-1.5 flex flex-col justify-between overflow-hidden" style="background:${VIZ_COLORS[i%VIZ_COLORS.length]}">
+        <div class="text-white font-semibold leading-tight truncate" style="font-size:${small?'9px':'11px'}">${esc(r.label)}</div>
+        <div class="text-white font-bold" style="font-size:${small?'9px':'12px'};opacity:.95">${fmtK(r.value)}</div>
+      </div></div>`;
+  }).join('');
+  return `<div class="relative w-full" style="aspect-ratio:${NW}/${NH}">${tiles}</div>`;
 }
 
 /* ---- Export view ---- */
@@ -571,8 +650,12 @@ function viewExport() {
       <div class="flex justify-between text-base pt-2 border-t border-gray-100 mt-1"><span class="font-bold">Grand total</span><span class="font-extrabold text-spark">${fmt(grandTotal())}</span></div>
     </div>
     <div class="bg-white rounded-2xl p-4 shadow-sm">
-      <div class="text-[12px] font-semibold text-gray-400 uppercase mb-2">By section</div>
-      ${Object.entries(sections).filter(([,v])=>v>0).map(([s,v])=>`<div class="flex justify-between py-1 text-sm"><span class="text-gray-600">${s}</span><span class="font-semibold">${fmt(v)}</span></div>`).join('') || '<div class="text-sm text-gray-400">Nothing selected yet.</div>'}
+      <div class="text-[12px] font-semibold text-gray-400 uppercase mb-3">Cost by section</div>
+      ${donutChart(Object.entries(sections).map(([s,v])=>({label:s, value:v})))}
+    </div>
+    <div class="bg-white rounded-2xl p-4 shadow-sm">
+      <div class="text-[12px] font-semibold text-gray-400 uppercase mb-3">Cost by room</div>
+      ${treemap(P.rooms.map(r=>({label:r.name, value:roomTotal(r.id)})))}
     </div>
     <button data-act="export" class="press w-full py-4 bg-spark text-white rounded-2xl font-bold text-lg shadow-lg shadow-spark/30 flex items-center justify-center gap-2">
       <svg width="20" height="20" viewBox="0 0 24 24" fill="none"><path d="M12 3v12m0 0l-4-4m4 4l4-4M4 17v2a2 2 0 002 2h12a2 2 0 002-2v-2" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
