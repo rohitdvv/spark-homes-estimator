@@ -672,7 +672,8 @@ function agentAnomaly(){
 }
 
 /* ---- RAG-lite assistant: retrieve best KB answer + live estimate facts ---- */
-function assistantAnswer(qRaw){
+/* ---- computed (exact) intents — instant, model-free ---- */
+function computedAnswer(qRaw){
   const q = qRaw.toLowerCase().trim();
   const pr = progress();
 
@@ -708,16 +709,78 @@ function assistantAnswer(qRaw){
     return `Projected profit is ${fmt(profit)}, so ${verdict}. (ARV ${fmt(arv)} − purchase ${fmt(pur)} − repairs ${fmt(rep)} − holding ${fmt(hold)} − selling ${fmt(sell)}.) Max Allowable Offer by the 70% rule is ${fmt(arv*0.7-rep)}.`;
   }
 
-  // retrieval over KB by keyword overlap
+  return null; // no computed intent — defer to semantic / keyword retrieval
+}
+
+/* ---- offline KB retrieval: whole-word keyword overlap (instant, model-free) ----
+   Word-boundary match so e.g. "ac" doesn't false-match inside "place". */
+function keywordKB(qRaw){
+  const words = new Set((qRaw.toLowerCase().match(/[a-z0-9]+/g)) || []);
   let best = null;
   KB.forEach(e => {
-    const score = e.k.reduce((s,kw) => s + (q.includes(kw) ? 1 : 0), 0);
+    const score = e.k.reduce((s,kw) => s + (words.has(kw) ? 1 : 0), 0);
     if (score > 0 && (!best || score > best.score)) best = { score, a: e.a };
   });
-  if (best) return best.a;
+  return best ? best.a : null;
+}
+const COPILOT_FALLBACK = 'I don\'t have a confident answer for that — I\'m an offline assistant focused on this walkthrough. I can help with the running total, your biggest cost, what\'s left to review, the deal/profit math, or a repair area like HVAC, roof, foundation, electrical, kitchen, bath, flooring, or exterior.';
 
-  // honest fallback — say "I don't know" instead of firing an irrelevant canned answer
-  return 'I don\'t have a confident answer for that — I\'m an offline assistant focused on this walkthrough. I can help with the running total, your biggest cost, what\'s left to review, the deal/profit math, or a repair area like HVAC, roof, foundation, electrical, kitchen, bath, flooring, or exterior.';
+/* ---- offline semantic engine — Transformers.js + all-MiniLM-L6-v2 (lazy) ----
+   Upgrades KB retrieval from keyword overlap to on-device sentence embeddings,
+   so any phrasing maps to the right guidance. Runs 100% on-device; the model +
+   runtime are cached by the service worker, so it works offline after the first
+   load. Falls back silently to keyword matching if it can't load (no signal on
+   first use, or no WASM support). */
+const SEM = { state:'idle', extractor:null, embed:null, vecs:null }; // idle|loading|ready|failed
+const SEM_THRESHOLD = 0.25; // cosine sim below this → treat as off-topic
+async function ensureSemantic(){
+  if (SEM.state === 'ready')  return true;
+  if (SEM.state === 'failed') return false;
+  if (SEM.state === 'loading')
+    return new Promise(res => { const t = setInterval(() => { if (SEM.state !== 'loading') { clearInterval(t); res(SEM.state === 'ready'); } }, 200); });
+  SEM.state = 'loading';
+  try {
+    const mod = await import('https://cdn.jsdelivr.net/npm/@xenova/transformers@2.17.2');
+    mod.env.allowLocalModels = false;
+    SEM.extractor = await mod.pipeline('feature-extraction', 'Xenova/all-MiniLM-L6-v2');
+    SEM.embed = async (t) => Array.from((await SEM.extractor(t, { pooling:'mean', normalize:true })).data);
+    SEM.vecs = [];
+    for (const e of KB) SEM.vecs.push(await SEM.embed(e.k.join(', ') + '. ' + e.a)); // embed corpus once
+    SEM.state = 'ready';
+    return true;
+  } catch (err) {
+    console.warn('Offline semantic engine unavailable — using keyword retrieval:', err);
+    SEM.state = 'failed';
+    return false;
+  }
+}
+async function semanticKB(qRaw){
+  if (SEM.state !== 'ready') return null;
+  const qv = await SEM.embed(qRaw);
+  let best = null;
+  SEM.vecs.forEach((v, i) => { let s = 0; for (let k = 0; k < v.length; k++) s += qv[k] * v[k]; if (!best || s > best.s) best = { s, a: KB[i].a }; });
+  return best;
+}
+
+/* ---- resolver: computed intent → semantic KB → keyword KB → honest fallback ---- */
+async function answerQuery(q){
+  const c = computedAnswer(q);
+  if (c != null) return c;
+  if (await ensureSemantic()){
+    // engine loaded: a below-threshold score means it's genuinely off-topic
+    const best = await semanticKB(q);
+    return (best && best.s >= SEM_THRESHOLD) ? best.a : COPILOT_FALLBACK;
+  }
+  // engine unavailable (offline first use / no WASM) → keyword fallback
+  const kw = keywordKB(q);
+  return kw != null ? kw : COPILOT_FALLBACK;
+}
+/* sync, model-free path (instant offline answers + non-chat callers) */
+function assistantAnswer(q){
+  const c = computedAnswer(q);
+  if (c != null) return c;
+  const kw = keywordKB(q);
+  return kw != null ? kw : COPILOT_FALLBACK;
 }
 
 let CHAT = [{ role:'bot', text:'Hi — I\'m your estimate copilot. Ask me about scope, costs, the deal math, or tap an agent above to scan this walkthrough.' }];
@@ -763,7 +826,7 @@ function viewCopilot(){
     ${agentCard('🛡️','Anomaly & Risk','outlier detection', ano)}
 
     <div class="bg-white rounded-2xl shadow-sm overflow-hidden">
-      <div class="px-4 pt-3 pb-2 flex items-center gap-2 border-b border-gray-100"><span class="text-lg">💬</span><span class="font-bold text-[15px]">Assistant</span><span class="ml-auto text-[10px] text-gray-400">retrieval over repair guidelines</span></div>
+      <div class="px-4 pt-3 pb-2 flex items-center gap-2 border-b border-gray-100"><span class="text-lg">💬</span><span class="font-bold text-[15px]">Assistant</span><span class="ml-auto text-[10px] ${SEM.state==='ready'?'text-green-600 font-semibold':'text-gray-400'}">${SEM.state==='ready'?'⚡ offline AI · semantic':SEM.state==='loading'?'loading AI…':'on-device retrieval'}</span></div>
       <div id="chatlog" class="px-4 py-3 space-y-2 max-h-72 overflow-y-auto">
         ${CHAT.map(m => m.role === 'bot'
           ? `<div class="flex"><div class="bg-gray-100 rounded-2xl rounded-tl-sm px-3 py-2 text-[13px] max-w-[85%]">${esc(m.text)}</div></div>`
@@ -994,11 +1057,19 @@ function applyRec(r, g, i) {
   if (P.nan[nanKey(r, g)]) delete P.nan[nanKey(r, g)];
   save(); render(); toast(itemById(i).name + ' added');
 }
-function sendChat() {
+async function sendChat() {
   const el = document.getElementById('chatin'); if (!el) return;
   const q = el.value.trim(); if (!q) return;
   CHAT.push({ role: 'user', text: q });
-  CHAT.push({ role: 'bot', text: assistantAnswer(q) });
+  // typing placeholder — note the one-time model warm-up the first time it's needed
+  const warming = SEM.state === 'idle' && computedAnswer(q) == null;
+  CHAT.push({ role: 'bot', text: warming ? 'Warming up the offline AI (one-time download)…' : 'Thinking…', _typing: true });
+  if (CHAT.length > 40) CHAT = CHAT.slice(-40);
+  render();
+  let ans;
+  try { ans = await answerQuery(q); } catch (e) { ans = assistantAnswer(q); }
+  const i = CHAT.findIndex(m => m._typing); if (i >= 0) CHAT.splice(i, 1);
+  CHAT.push({ role: 'bot', text: ans });
   if (CHAT.length > 40) CHAT = CHAT.slice(-40);
   render();
   const log = document.getElementById('chatlog'); if (log) log.scrollTop = log.scrollHeight;

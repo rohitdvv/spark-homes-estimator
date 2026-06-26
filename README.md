@@ -84,8 +84,14 @@ so it never breaks the offline rule):
   quantities, price overrides far from the list default, and conflicting scope
   (e.g. reglaze *and* tear-out on the same tub).
 - **Assistant**: a chat that answers from live estimate facts (total, biggest
-  cost driver, what's missing, profit math) plus **RAG-lite retrieval** over an
-  embedded repair-guidelines knowledge base. Voice input via Web Speech API.
+  cost driver, what's missing, profit math) plus **semantic retrieval** over an
+  embedded repair-guidelines knowledge base. Retrieval runs a real on-device
+  embedding model (Transformers.js + `all-MiniLM-L6-v2`, lazy-loaded and
+  service-worker-cached, so it works offline after first load) — questions map
+  to the right guidance by meaning, not keywords, with a similarity threshold so
+  off-topic questions get an honest "I don't know" instead of a wrong canned
+  answer. Falls back to whole-word keyword matching if the model can't load.
+  Voice input via Web Speech API.
 
 This is a deliberate, contest-legal interpretation of the requested multi-agent /
 RAG / recommendation / chatbot features: the *architecture* (specialist agents
@@ -125,6 +131,8 @@ managed from the home screen ("Manage standard pricing").
 - **SheetJS / xlsx** (CDN) — Excel generation.
 - **JSZip** (CDN) — bundles xlsx + photos into one ZIP.
 - **Tesseract.js** (CDN, lazy-loaded on first scan) — on-device serial-number OCR.
+- **Transformers.js** (CDN, lazy-loaded on first Copilot question) — on-device
+  sentence embeddings (`all-MiniLM-L6-v2`) for the semantic assistant.
 
 All CDN libraries are runtime-cached by the service worker, so the second launch
 works with no network.
