@@ -673,27 +673,41 @@ function agentAnomaly(){
 
 /* ---- RAG-lite assistant: retrieve best KB answer + live estimate facts ---- */
 function assistantAnswer(qRaw){
-  const q = qRaw.toLowerCase();
-  // dynamic, computed intents first
+  const q = qRaw.toLowerCase().trim();
   const pr = progress();
-  if (/total|how much|cost so far|estimate/.test(q)) return `The running repair estimate is ${fmt(grandTotal())} across ${P.rooms.length} rooms (${pr.done}/${pr.total} groups reviewed).`;
-  if (/missing|left|next|what.*do|incomplete/.test(q)){
+
+  // greetings / pleasantries — don't let these fall through to a canned scan
+  if (/^(hi|hey+|hello|yo|sup|howdy|good (morning|afternoon|evening))\b/.test(q) || /^(thanks|thank you|ty|thx|cool|nice|ok|okay)\b/.test(q))
+    return 'Hey! Ask me about the running total, your biggest cost, what\'s left to review, the deal math, or any repair area — HVAC, roof, foundation, electrical, kitchen, bath, flooring, exterior.';
+
+  // running total / cost so far
+  if (/\btotal\b|how much|cost so far|running (estimate|total)|what.?s the (estimate|total)/.test(q))
+    return `The running repair estimate is ${fmt(grandTotal())} across ${P.rooms.length} rooms (${pr.done}/${pr.total} groups reviewed).`;
+
+  // what's missing / next  (tightened: no greedy "what.*do" that swallows off-topic questions)
+  if (/missing|what.?s left|what.?s next|incomplete|remaining|still (need|to do|to review)|to review|haven.?t (done|reviewed|checked)|what should i (review|check|do) next/.test(q)){
     const cov = agentCoverage().filter(f => f.sev !== 'ok');
     return cov.length ? 'Coverage check: ' + cov.map(f => f.msg).join(' ') : 'You\'ve reviewed every group — nothing outstanding.';
   }
-  if (/biggest|most expensive|driver|largest/.test(q)){
+
+  // biggest cost driver
+  if (/biggest|most expensive|driver|largest|priciest|top cost|costs? the most/.test(q)){
     let best = null;
     P.rooms.forEach(r => ROOM_TYPES[r.type].groups.forEach(g => groupItemIds(g).forEach(id => {
       const lt = lineTotal(r.id,g,id); if (lt > 0 && (!best || lt > best.lt)) best = { lt, name: itemById(id)?.name, room: r.name };
     })));
     return best ? `Your biggest line item is "${best.name}" in ${best.room} at ${fmt(best.lt)}.` : 'Nothing is selected yet, so there\'s no cost driver to report.';
   }
-  if (/\bprofit\b|\bmargin\b|\broi\b|make money|worth it|max allowable|should i (buy|offer)/.test(q)){
+
+  // deal / profit  (now also catches "good deal", "should I walk/pass", gives a live verdict)
+  if (/\bprofit\b|\bmargin\b|\broi\b|make money|worth it|good deal|bad deal|max allowable|\bmao\b|should i (buy|offer|walk|pass|bid)/.test(q)){
     const d = P.deal, arv=+d.arv||0, pur=+d.purchase||0, rep=grandTotal();
-    if (!arv||!pur) return 'Add ARV and purchase price on the Deal tab and I\'ll give you a profit projection and a GO/NO-GO call.';
+    if (!arv||!pur) return 'Add ARV and purchase price on the Deal tab and I\'ll give you a live profit projection and a GO / CAUTION / NO-GO call.';
     const hold=(+d.weeks||0)*(+d.perWeek||0), sell=arv*((+d.sellPct||0)/100), profit=arv-(pur+rep+hold+sell);
-    return `Projected profit is ${fmt(profit)} (ARV ${fmt(arv)} − purchase ${fmt(pur)} − repairs ${fmt(rep)} − holding ${fmt(hold)} − selling ${fmt(sell)}). Max Allowable Offer by the 70% rule is ${fmt(arv*0.7-rep)}.`;
+    const verdict = profit>=25000 ? 'this looks like a GO' : profit>0 ? 'the margin is thin — CAUTION' : 'this is a NO-GO (projected loss)';
+    return `Projected profit is ${fmt(profit)}, so ${verdict}. (ARV ${fmt(arv)} − purchase ${fmt(pur)} − repairs ${fmt(rep)} − holding ${fmt(hold)} − selling ${fmt(sell)}.) Max Allowable Offer by the 70% rule is ${fmt(arv*0.7-rep)}.`;
   }
+
   // retrieval over KB by keyword overlap
   let best = null;
   KB.forEach(e => {
@@ -701,7 +715,9 @@ function assistantAnswer(qRaw){
     if (score > 0 && (!best || score > best.score)) best = { score, a: e.a };
   });
   if (best) return best.a;
-  return 'I can help with repair scope, costs, what\'s missing, photos/serials, and the deal math. Try: "what\'s the biggest cost", "what am I missing", or ask about HVAC, foundation, or the 70% rule.';
+
+  // honest fallback — say "I don't know" instead of firing an irrelevant canned answer
+  return 'I don\'t have a confident answer for that — I\'m an offline assistant focused on this walkthrough. I can help with the running total, your biggest cost, what\'s left to review, the deal/profit math, or a repair area like HVAC, roof, foundation, electrical, kitchen, bath, flooring, or exterior.';
 }
 
 let CHAT = [{ role:'bot', text:'Hi — I\'m your estimate copilot. Ask me about scope, costs, the deal math, or tap an agent above to scan this walkthrough.' }];
@@ -1096,15 +1112,20 @@ function softUpdateDeal() {
 /* ---------- photos ---------- */
 function addPhotos(files) {
   if (!files || !files.length) return;
-  let pending = files.length;
+  let pending = files.length, added = 0;
+  const done = () => { if (--pending === 0) { save(); render(); toast(added ? (added > 1 ? added + ' photos added' : 'Photo added') : 'Could not read that photo'); } };
   [...files].forEach(f => {
+    if (!/^image\//.test(f.type)) { toast('That file is not an image'); done(); return; }
     const reader = new FileReader();
     reader.onload = () => {
       compress(reader.result, 1280, 0.7).then(data => {
+        if (!setLS('__probe__', data.length)) { toast('Storage full — delete some photos first', 4000); done(); return; }
+        localStorage.removeItem('__probe__');
         P.photos.push({ id: 'ph' + Date.now().toString(36) + Math.random().toString(36).slice(2,5), data, caption: '', serial: '' });
-        if (--pending === 0) { save(); render(); toast('Photo added'); }
-      });
+        added++; done();
+      }).catch(() => { toast('Could not process that photo'); done(); });
     };
+    reader.onerror = () => { toast('Could not read that photo'); done(); };
     reader.readAsDataURL(f);
   });
 }
@@ -1143,8 +1164,22 @@ async function startLive() {
   document.body.appendChild(ov);
   try {
     _liveStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' }, audio: false });
-    document.getElementById('liveVid').srcObject = _liveStream;
-  } catch (e) { toast('Camera permission denied'); stopLive(); return; }
+    const v = document.getElementById('liveVid');
+    v.srcObject = _liveStream;
+    await v.play().catch(() => {}); // iOS Safari needs an explicit play() after srcObject
+  } catch (e) {
+    stopLive();
+    const n = e && e.name;
+    const msg = n === 'NotAllowedError' || n === 'SecurityError'
+        ? 'Camera blocked. Tap the lock / “aA” icon in the address bar → allow Camera, then retry. Use the https link, not an embedded preview.'
+      : (n === 'NotFoundError' || n === 'DevicesNotFoundError' || n === 'OverconstrainedError')
+        ? 'No usable camera found — use “Photo / upload” instead.'
+      : n === 'NotReadableError'
+        ? 'Camera is in use by another app. Close it and retry.'
+        : 'Could not start the camera — use “Photo / upload” instead.';
+    toast(msg, 6000);
+    return;
+  }
   let count = 0;
   document.getElementById('liveSnap').onclick = () => {
     const v = document.getElementById('liveVid');
@@ -1285,11 +1320,11 @@ async function doExport() {
 
 /* ---------- misc UI ---------- */
 let _toastT;
-function toast(msg) {
+function toast(msg, ms) {
   const t = document.getElementById('toast');
-  t.className = 'toast fixed left-1/2 bottom-24 z-[60] bg-ink text-white text-sm font-semibold px-4 py-2.5 rounded-full shadow-lg';
+  t.className = 'toast fixed left-1/2 bottom-24 z-[60] bg-ink text-white text-sm font-semibold px-4 py-2.5 rounded-full shadow-lg max-w-[88%] text-center leading-snug';
   t.textContent = msg; t.classList.remove('hidden');
-  clearTimeout(_toastT); _toastT = setTimeout(() => t.classList.add('hidden'), 2200);
+  clearTimeout(_toastT); _toastT = setTimeout(() => t.classList.add('hidden'), ms || 2200);
 }
 function confirmDel(msg, fn) {
   modal(`<div class="px-5 pb-8 pt-2 text-center">
