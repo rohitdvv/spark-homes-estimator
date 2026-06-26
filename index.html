@@ -784,6 +784,8 @@ function assistantAnswer(q){
 }
 
 let CHAT = [{ role:'bot', text:'Hi — I\'m your estimate copilot. Ask me about scope, costs, the deal math, or tap an agent above to scan this walkthrough.' }];
+let voiceHintSeen = localStorage.getItem('spark_voicehint') === '1';
+function dismissVoiceHint() { voiceHintSeen = true; localStorage.setItem('spark_voicehint', '1'); }
 
 function viewCopilot(){
   const cov = agentCoverage(), rec = agentRecommend(), ano = agentAnomaly();
@@ -840,6 +842,13 @@ function viewCopilot(){
       <div class="px-3 pb-3 flex gap-1.5 flex-wrap">
         ${['What am I missing?','Biggest cost?','What\'s the profit?'].map(s => `<button data-act="chip" data-q="${esc(s)}" class="press text-[11px] bg-gray-100 text-gray-500 px-2.5 py-1 rounded-full font-medium">${esc(s)}</button>`).join('')}
       </div>
+      ${voiceHintSeen ? '' : `<div class="px-3 pb-3 -mt-1">
+        <div class="flex items-start gap-2 text-[11px] text-gray-500 bg-gray-50 rounded-lg px-2.5 py-1.5">
+          <span class="flex-shrink-0">🎙️</span>
+          <span class="flex-1 leading-snug">Voice needs microphone permission and a connection — tap “Allow” when asked.</span>
+          <button data-act="dismissvoicehint" class="press flex-shrink-0 text-gray-400 font-bold px-1 -mt-0.5" title="Dismiss">×</button>
+        </div>
+      </div>`}
     </div>
   </div>`;
 }
@@ -1070,6 +1079,7 @@ function handle(e) {
     case 'chatsend': sendChat(); break;
     case 'chip': document.getElementById('chatin').value = d.q; sendChat(); break;
     case 'chatmic': voiceInput('chatin'); break;
+    case 'dismissvoicehint': dismissVoiceHint(); render(); break;
   }
 }
 
@@ -1109,7 +1119,7 @@ function voiceInput(targetId) {
     ? document.querySelector('[data-act="chatmic"]')
     : document.querySelector('[data-act="capmic"][data-id="' + targetId.slice(4) + '"]');
   const listening = on => { if (btn) { btn.classList.toggle('bg-gray-100', !on); btn.classList.toggle('bg-red-500', on); btn.classList.toggle('animate-pulse', on); } };
-  rec.onstart = () => { listening(true); toast('Listening… speak now', 3000); };
+  rec.onstart = () => { listening(true); dismissVoiceHint(); toast('Listening… speak now', 3000); };
   rec.onresult = (e) => {
     const txt = e.results[0][0].transcript;
     const el = document.getElementById(targetId);
