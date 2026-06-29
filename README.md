@@ -107,6 +107,17 @@ During capture you can record a **voice note** that transcribes to the frame's
 caption (Web Speech API, graceful fallback where unsupported). Any captured
 serial plate can be OCR'd on-device.
 
+During Live Capture, an **AI scope detector** ("Detect" button) runs an
+on-device zero-shot image classifier (Transformers.js + CLIP, lazy-loaded and
+service-worker-cached) over the current frame. It scores the view against a set
+of labels tied to line items (fixtures like fridge, toilet, water heater, plus
+coarse defects like cracked tile, water-stained ceiling, peeling paint) and
+surfaces ranked suggestions. Each is a one-tap **Add** that drops the item into
+the right room and group. Suggestions are advisory and require the agent to
+confirm; they never auto-add. The detection path (`suggestScope`) is structured
+so an online vision model can plug in for higher accuracy when there is signal,
+falling back to the offline classifier otherwise.
+
 ---
 
 ## How pricing works
@@ -132,7 +143,9 @@ managed from the home screen ("Manage standard pricing").
 - **JSZip** (CDN) — bundles xlsx + photos into one ZIP.
 - **Tesseract.js** (CDN, lazy-loaded on first scan) — on-device serial-number OCR.
 - **Transformers.js** (CDN, lazy-loaded on first Copilot question) — on-device
-  sentence embeddings (`all-MiniLM-L6-v2`) for the semantic assistant.
+  sentence embeddings (`all-MiniLM-L6-v2`) for the semantic assistant, and
+  zero-shot image classification (`clip-vit-base-patch32`) for the Live Capture
+  AI scope detector.
 
 All CDN libraries are runtime-cached by the service worker, so the second launch
 works with no network.
