@@ -1376,6 +1376,88 @@ function compress(dataUrl, maxW, q) {
 function setCaption(id, v) { const ph = P.photos.find(p => p.id === id); if (ph) { ph.caption = v; save(); } }
 function delPhoto(id) { P.photos = P.photos.filter(p => p.id !== id); save(); render(); }
 
+/* =========================================================
+   AI defect / scope detection from a camera frame.
+   Offline now: on-device zero-shot image classification
+   (Transformers.js + CLIP) scores the frame against labels
+   tied to line items. Designed so an online vision model can
+   slot into suggestScope() later for higher accuracy.
+   ========================================================= */
+// label (CLIP prompt) -> line item it implies, and where it belongs.
+const VISION_LABELS = [
+  { prompt:'a refrigerator',                       item:'kt-17', room:'kitchen',  group:'appliances' },
+  { prompt:'a kitchen stove or oven range',        item:'kt-13', room:'kitchen',  group:'appliances' },
+  { prompt:'a dishwasher',                         item:'kt-16', room:'kitchen',  group:'appliances' },
+  { prompt:'worn or damaged kitchen cabinets',     item:'kt-05', room:'kitchen',  group:'cabinets' },
+  { prompt:'a toilet',                             item:'ba-04', room:'bathroom', group:'vanity' },
+  { prompt:'a bathroom vanity with a sink',        item:'ba-03', room:'bathroom', group:'vanity' },
+  { prompt:'a bathtub or shower',                  item:'ba-07', room:'bathroom', group:'tub' },
+  { prompt:'cracked or damaged wall or floor tile',item:'ba-05', room:'bathroom', group:'btile' },
+  { prompt:'a furnace or HVAC air handler',        item:'as-01', room:'systems',  group:'hvac' },
+  { prompt:'a water heater tank',                  item:'as-08', room:'systems',  group:'plumbing' },
+  { prompt:'a water stained or damaged ceiling',   item:'ig-08', room:'interior', group:'paint' },
+  { prompt:'old worn carpet flooring',             item:'ig-06', room:'interior', group:'flooring' },
+  { prompt:'a ceiling light fixture',              item:'ig-22', room:'interior', group:'lighting' },
+  { prompt:'an interior door',                     item:'ig-10', room:'interior', group:'doors' },
+  { prompt:'peeling or damaged exterior paint',    item:'ex-07', room:'exterior', group:'siding' },
+  { prompt:'a garage door',                        item:'ex-21', room:'exterior', group:'garage' },
+  { prompt:'a wooden privacy fence',               item:'ex-03', room:'exterior', group:'fence' },
+  { prompt:'an ordinary empty room with nothing notable', item:null, room:null, group:null } // null "none" class
+];
+
+const VISION = { state:'idle', clf:null, online:false }; // online=true would route to suggestScopeOnline()
+async function ensureVision(){
+  if (VISION.state === 'ready')  return true;
+  if (VISION.state === 'failed') return false;
+  if (VISION.state === 'loading')
+    return new Promise(res => { const t = setInterval(() => { if (VISION.state !== 'loading') { clearInterval(t); res(VISION.state === 'ready'); } }, 200); });
+  VISION.state = 'loading';
+  try {
+    const mod = await import('https://cdn.jsdelivr.net/npm/@xenova/transformers@2.17.2');
+    mod.env.allowLocalModels = false;
+    VISION.clf = await mod.pipeline('zero-shot-image-classification', 'Xenova/clip-vit-base-patch32');
+    VISION.state = 'ready';
+    return true;
+  } catch (err) {
+    console.warn('On-device vision unavailable:', err);
+    VISION.state = 'failed';
+    return false;
+  }
+}
+
+/* dispatcher: online vision model when configured, else offline CLIP */
+async function suggestScope(dataUrl){
+  if (VISION.online) { try { return await suggestScopeOnline(dataUrl); } catch (e) { /* fall through */ } }
+  return await suggestScopeOffline(dataUrl);
+}
+/* C-later seam: send the frame + price list to a vision LLM for accurate,
+   reasoned suggestions. Left unconfigured so the app stays offline by default. */
+async function suggestScopeOnline(dataUrl){ throw new Error('online vision not configured'); }
+
+async function suggestScopeOffline(dataUrl){
+  if (!(await ensureVision())) return { error: 'unavailable' };
+  const labels = VISION_LABELS.map(l => 'a photo of ' + l.prompt);
+  const res = await VISION.clf(dataUrl, labels);
+  const ranked = res
+    .map(r => ({ ...VISION_LABELS[labels.indexOf(r.label)], score: r.score }))
+    .filter(r => r.item)                        // drop the "none" class
+    .filter(r => r.score >= 0.15)               // confidence floor
+    .filter(r => itemById(r.item))
+    .slice(0, 3);
+  return { suggestions: ranked };
+}
+
+/* add a confirmed suggestion to the estimate (creates the room type if absent) */
+function applyVisionSuggestion(item, roomType, group){
+  let room = P.rooms.find(r => r.type === roomType);
+  if (!room) { addRoom(P, roomType, true); room = P.rooms.find(r => r.type === roomType); }
+  if (!room) return;
+  P.cells[cellKey(room.id, group, item)] = { q: 1 };
+  if (P.nan[nanKey(room.id, group)]) delete P.nan[nanKey(room.id, group)];
+  save();
+  toast((itemById(item) ? itemById(item).name : 'Item') + ' added to ' + room.name);
+}
+
 /* ---------- live video capture (camera walkthrough → grab frames) ---------- */
 let _liveStream = null;
 async function startLive() {
@@ -1386,10 +1468,12 @@ async function startLive() {
   ov.innerHTML = `
     <video id="liveVid" autoplay playsinline muted class="flex-1 w-full object-cover"></video>
     <div id="liveCount" class="absolute top-4 left-1/2 -translate-x-1/2 bg-black/60 text-white text-sm font-semibold px-3 py-1 rounded-full" style="top:max(1rem,env(safe-area-inset-top))">0 frames captured</div>
+    <div id="liveSugg" class="absolute inset-x-3 bottom-32 flex flex-col gap-1.5"></div>
     <div class="absolute bottom-0 inset-x-0 flex items-center justify-around p-6" style="padding-bottom:max(1.5rem,env(safe-area-inset-bottom))">
-      <button id="liveDone" class="text-white font-semibold text-[15px] px-4 py-2">Done</button>
-      <button id="liveSnap" class="w-18 h-18 rounded-full bg-white ring-4 ring-white/40" style="width:72px;height:72px"></button>
-      <button id="liveMic" class="text-white text-2xl px-4 py-2" title="Voice note">🎙️</button>
+      <button id="liveDone" class="text-white font-semibold text-[15px] px-3 py-2">Done</button>
+      <button id="liveDetect" class="text-white font-semibold text-[13px] px-3 py-2 rounded-full bg-white/15" title="AI scope detect">✨ Detect</button>
+      <button id="liveSnap" class="rounded-full bg-white ring-4 ring-white/40" style="width:72px;height:72px"></button>
+      <button id="liveMic" class="text-white text-2xl px-3 py-2" title="Voice note">🎙️</button>
     </div>`;
   document.body.appendChild(ov);
   try {
@@ -1425,6 +1509,37 @@ async function startLive() {
   };
   document.getElementById('liveMic').onclick = () => liveVoiceNote();
   document.getElementById('liveDone').onclick = () => { stopLive(); render(); toast(count ? count + ' frames saved' : 'Capture ended'); };
+
+  // AI scope detect: scan the current frame, suggest line items to add
+  const added = new Set();
+  const renderSugg = (list) => {
+    const box = document.getElementById('liveSugg'); if (!box) return;
+    box.innerHTML = (list || []).map(s => `
+      <div class="flex items-center gap-2 bg-black/70 text-white rounded-xl px-3 py-2">
+        <div class="flex-1 min-w-0">
+          <div class="text-[13px] font-semibold truncate">${esc(itemById(s.item).name)}</div>
+          <div class="text-[10px] text-white/60">${esc(s.prompt)} · ${Math.round(s.score*100)}% · ${esc(ROOM_TYPES[s.room].label)}</div>
+        </div>
+        <button data-add="${s.item}" data-room="${s.room}" data-group="${s.group}" class="press flex-shrink-0 text-[12px] font-bold ${added.has(s.item)?'bg-white/20 text-white/60':'bg-spark text-white'} px-3 py-1.5 rounded-lg">${added.has(s.item)?'Added':'Add'}</button>
+      </div>`).join('');
+    box.querySelectorAll('[data-add]').forEach(b => b.onclick = () => {
+      if (added.has(b.dataset.add)) return;
+      applyVisionSuggestion(b.dataset.add, b.dataset.room, b.dataset.group);
+      added.add(b.dataset.add); renderSugg(list);
+    });
+  };
+  const det = document.getElementById('liveDetect');
+  det.onclick = async () => {
+    const v = document.getElementById('liveVid'); if (!v || !v.videoWidth) return;
+    det.textContent = VISION.state === 'ready' ? '✨ Scanning…' : '✨ Loading AI…';
+    const c = document.createElement('canvas'); c.width = v.videoWidth; c.height = v.videoHeight;
+    c.getContext('2d').drawImage(v, 0, 0);
+    const out = await suggestScope(c.toDataURL('image/jpeg', 0.85));
+    det.textContent = '✨ Detect';
+    if (out.error) { toast('Detector unavailable offline (needs first online load)', 4000); return; }
+    if (!out.suggestions.length) { renderSugg([]); toast('Nothing recognized — move closer or steadier', 3500); return; }
+    renderSugg(out.suggestions);
+  };
 }
 function stopLive() {
   if (_liveStream) { _liveStream.getTracks().forEach(t => t.stop()); _liveStream = null; }
