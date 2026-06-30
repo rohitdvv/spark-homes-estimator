@@ -1711,14 +1711,22 @@ async function ensureVoiceIndex(){
 /* parse one spoken phrase -> add a line item (or report no match) */
 const ROOM_WORDS = /\b(kitchen|bathroom|bath|powder|shower|restroom|bedroom|master|guest|living|family|den|common|dining|lounge|exterior|outside|outdoor|yard|garage|interior|hallway|hall|foyer|entry|room)\b/g;
 const STOP = new Set('the a an and or is are it its on in at of to for with new old need needs needed replace replaced install installed add put get got this that here there look looks looking bad broken damage damaged damages fix some please all both also then they we want some'.split(' '));
+/* spoken-word -> item-name token, for terms that differ from the catalog wording */
+const SYNONYMS = { ac:'condensing', air:'condensing', conditioner:'condensing', condenser:'condensing',
+  fridge:'fridge', refrigerator:'fridge', stove:'range', oven:'oven', microwave:'microwave', hood:'hood',
+  plug:'outlets', plugs:'outlets', outlet:'outlets', socket:'outlets', breaker:'panel', rewire:'rewire',
+  gutters:'guttering', gutter:'guttering', roofing:'roof', faucet:'sink', countertop:'granite', counters:'granite', counter:'granite',
+  lights:'light', lighting:'light', cabinet:'cabinets', flooring:'floor', floors:'floor', windows:'window', doors:'door' };
 /* instant keyword match against item names — works with no model, no network */
 function matchItemFromText(t){
   const words = (t.toLowerCase().match(/[a-z]+/g) || []).filter(w => w.length > 2 && !STOP.has(w));
   if (!words.length) return null;
   const ws = new Set(words);
+  words.forEach(w => { if (SYNONYMS[w]) ws.add(SYNONYMS[w]); });
   let best = null;
   catalog().forEach(it => {
-    const toks = (it.name.toLowerCase().match(/[a-z]+/g) || []).filter(w => w.length > 2 && !STOP.has(w));
+    // ignore parenthetical qualifiers like "(needed if no window)" so they don't false-match
+    const toks = (it.name.toLowerCase().replace(/\([^)]*\)/g, ' ').match(/[a-z]+/g) || []).filter(w => w.length > 2 && !STOP.has(w));
     let hits = 0; toks.forEach(tk => { if (ws.has(tk)) hits++; });
     if (hits > 0){ const score = hits + hits / Math.max(toks.length, 1); if (!best || score > best.score) best = { score, hits, id: it.id }; }
   });
@@ -1743,7 +1751,7 @@ async function processVoicePhrase(text){
     const qv = await SEM.embed(phraseForMatch);
     let best = null;
     VOICE.vecs.forEach(v => { let s = 0; for (let i = 0; i < v.vec.length; i++) s += qv[i] * v.vec[i]; if (!best || s > best.s) best = { s, id: v.id }; });
-    if (best && best.s >= 0.32) id = best.id;
+    if (best && best.s >= 0.42) id = best.id; // stricter: avoid forcing a wrong item when unsure
   }
   if (!id) return { phrase: t, matched: false };
   const group = groupOf(id); if (!group) return { phrase: t, matched: false };
@@ -1796,11 +1804,19 @@ function startVoiceWalk(){
     if (!feed.length){ elFeed.innerHTML = `<div class="text-center text-gray-500 text-[13px] py-10">Try: “kitchen, new cabinets and a range”, then “bathroom, toilet and a new vanity”.</div>`; return; }
     elFeed.innerHTML = feed.map((f,i)=> f.matched
       ? `<div class="flex items-center gap-2 bg-white/10 rounded-xl px-3 py-2">
-          <div class="flex-1 min-w-0"><div class="text-[14px] font-semibold truncate">✓ ${esc(f.name)}${f.qty>1?` ×${f.qty}`:''}</div>
+          <div class="flex-1 min-w-0"><div class="text-[14px] font-semibold truncate">✓ ${esc(f.name)}</div>
           <div class="text-[11px] text-gray-400 truncate">${esc(f.room)} · “${esc(f.phrase)}”</div></div>
-          <button data-undo="${i}" class="press text-[12px] text-gray-300 font-bold px-2">undo</button></div>`
-      : `<div class="bg-white/5 rounded-xl px-3 py-2 text-[12px] text-gray-500">No repair matched in “${esc(f.phrase)}”</div>`
+          <div class="flex items-center gap-1 flex-shrink-0">
+            <button data-qd="${i}" class="press w-7 h-7 rounded-lg bg-white/15 text-lg font-bold leading-none">−</button>
+            <span class="w-7 text-center text-[13px] font-bold">${f.qty}</span>
+            <button data-qi="${i}" class="press w-7 h-7 rounded-lg bg-white/15 text-lg font-bold leading-none">+</button>
+            <button data-undo="${i}" class="press text-[13px] text-gray-400 font-bold px-1 ml-0.5">✕</button>
+          </div></div>`
+      : `<div class="bg-white/5 rounded-xl px-3 py-2 text-[12px] text-gray-500">No repair matched in “${esc(f.phrase)}”. Try a clearer term.</div>`
     ).join('');
+    const setQ = (i, nq) => { const f = feed[i]; if (!f || !f.matched) return; nq = Math.max(1, nq); f.qty = nq; const c = P.cells[cellKey(f.roomId, f.group, f.id)]; if (c) c.q = nq; saveSoon(); renderFeed(); };
+    elFeed.querySelectorAll('[data-qi]').forEach(b => b.onclick = () => setQ(+b.dataset.qi, feed[+b.dataset.qi].qty + 1));
+    elFeed.querySelectorAll('[data-qd]').forEach(b => b.onclick = () => setQ(+b.dataset.qd, feed[+b.dataset.qd].qty - 1));
     elFeed.querySelectorAll('[data-undo]').forEach(b => b.onclick = () => {
       const f = feed[+b.dataset.undo]; if (!f || !f.matched) return;
       delete P.cells[cellKey(f.roomId, f.group, f.id)]; save();
@@ -1833,8 +1849,8 @@ function startVoiceWalk(){
       elInterim.textContent = interim;
     };
     rec.onerror = (ev) => {
-      const msg = (ev.error === 'not-allowed' || ev.error === 'service-not-allowed') ? 'Microphone blocked — allow it, or just type below.'
-        : ev.error === 'network' ? 'No connection for speech — type below instead.'
+      const msg = (ev.error === 'not-allowed' || ev.error === 'service-not-allowed') ? 'Microphone blocked. Allow it, or just type below.'
+        : ev.error === 'network' ? 'No connection for speech. Type below instead.'
         : '';
       if (msg) elStatus.textContent = msg;
     };
