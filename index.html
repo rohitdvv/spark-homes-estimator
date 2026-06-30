@@ -74,6 +74,21 @@
   @media (prefers-reduced-motion: reduce) {
     *, .view, .sheet, .pop, .acc { animation: none !important; transition: none !important; }
   }
+  /* ---- Dark mode (toggle adds .dark to <html>) ---- */
+  html.dark body { background:#0b1220; color:#e2e8f0; }
+  html.dark .bg-white { background-color:#1b2536 !important; }
+  html.dark .bg-white\/95 { background-color:rgba(11,18,32,.95) !important; }
+  html.dark .bg-\[\#f1f3f6\] { background-color:#0b1220 !important; }
+  html.dark .bg-gray-100 { background-color:#334155 !important; }
+  html.dark .bg-gray-50 { background-color:#1b2536 !important; }
+  html.dark .bg-spark-50 { background-color:#3a2418 !important; }
+  html.dark .text-gray-900, html.dark .text-gray-800, html.dark .text-gray-700,
+  html.dark .text-gray-600, html.dark .text-gray-500 { color:#cbd5e1 !important; }
+  html.dark .text-gray-400, html.dark .text-gray-300 { color:#8b9bb0 !important; }
+  html.dark .border-gray-200, html.dark .border-gray-100, html.dark .border-gray-50 { border-color:#334155 !important; }
+  html.dark input { background-color:#0b1220; color:#e2e8f0; }
+  html.dark input::placeholder { color:#64748b; }
+  html.dark .shadow-sm, html.dark .shadow, html.dark .shadow-lg { box-shadow:0 1px 3px rgba(0,0,0,.45) !important; }
 </style>
 </head>
 <body class="select-none">
@@ -155,6 +170,12 @@ const LS = {
 };
 const j = (k, fb) => { try { return JSON.parse(localStorage.getItem(k)) ?? fb; } catch { return fb; } };
 const setLS = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); return true; } catch { return false; } };
+
+// dark mode: apply the saved preference before first paint
+try { if (localStorage.getItem('spark_dark') === '1') document.documentElement.classList.add('dark'); } catch(e){}
+function isDark(){ return document.documentElement.classList.contains('dark'); }
+function toggleDark(){ const on = document.documentElement.classList.toggle('dark'); try { localStorage.setItem('spark_dark', on ? '1' : '0'); } catch(e){} render(); }
+const darkBtn = (cls) => `<button data-act="dark" class="press ${cls}" title="Toggle dark mode">${isDark() ? '☀️' : '🌙'}</button>`;
 
 let GLOBAL = j(LS.global, { prices: {}, custom: [], deleted: [] });
 function saveGlobal() { setLS(LS.global, GLOBAL); }
@@ -313,6 +334,7 @@ function header(pr) {
         </button>
         <div class="text-[11px] text-gray-400">${pr.done}/${pr.total} groups reviewed</div>
       </div>
+      ${darkBtn('text-lg leading-none px-1')}
       <div class="text-right">
         <div class="text-[10px] uppercase tracking-wide text-gray-400 font-semibold">Estimate</div>
         <div id="grand" class="text-xl font-extrabold text-spark leading-none">${fmt(grandTotal())}</div>
@@ -998,7 +1020,8 @@ function bottomNav() {
 function renderHome() {
   $app.innerHTML = `
   <div class="view min-h-screen flex flex-col">
-    <header class="px-5 pt-12 pb-6 bg-ink text-white" style="padding-top:max(3rem,env(safe-area-inset-top))">
+    <header class="relative px-5 pt-12 pb-6 bg-ink text-white" style="padding-top:max(3rem,env(safe-area-inset-top))">
+      <div class="absolute right-4" style="top:max(2.75rem,calc(env(safe-area-inset-top) + 0.5rem))">${darkBtn('text-xl')}</div>
       <img src="./spark-logo.png" class="h-7 w-auto mb-5" style="filter:brightness(0) invert(1)" onerror="this.style.display='none'" />
       <h1 class="text-2xl font-extrabold leading-tight">Repair Estimator</h1>
       <p class="text-gray-400 text-sm mt-1">Walk the property. Check the repairs. Know the number before you offer.</p>
@@ -1376,6 +1399,7 @@ function handle(e) {
     case 'chatmic': voiceInput('chatin'); break;
     case 'dismissvoicehint': dismissVoiceHint(); render(); break;
     case 'voicewalk': startVoiceWalk(); break;
+    case 'dark': toggleDark(); break;
     case 'compare': modalCompare(); break;
     case 'share': modalShare(); break;
     case 'report': clientReport(); break;
@@ -1763,6 +1787,40 @@ async function processVoicePhrase(text){
   return { phrase: t, matched: true, id, group, roomId: room.id, name: itemById(id) ? itemById(id).name : id, room: room.name, qty };
 }
 
+/* Pull EVERY item mentioned in one utterance (not just the single best match),
+   so "kitchen, new cabinets, a range and a toilet" adds all of them. Fast,
+   keyword-based, no model needed. */
+function extractItems(t){
+  const cleaned = t.toLowerCase().replace(ROOM_WORDS, ' '); // room words are context, not items
+  const words = (cleaned.match(/[a-z]+/g) || []).filter(w => w.length > 2 && !STOP.has(w));
+  const expanded = new Set(); words.forEach(w => { expanded.add(w); if (SYNONYMS[w]) expanded.add(SYNONYMS[w]); });
+  const out = [], used = new Set();
+  expanded.forEach(w => {
+    let best = null;
+    catalog().forEach(it => {
+      const toks = (it.name.toLowerCase().replace(/\([^)]*\)/g, ' ').match(/[a-z]+/g) || []).filter(x => x.length > 2 && !STOP.has(x));
+      const idx = toks.indexOf(w);
+      if (idx >= 0){ const score = (idx === 0 ? 2 : 1) + 1 / Math.max(toks.length, 1); if (!best || score > best.score) best = { score, id: it.id }; }
+    });
+    if (best && !used.has(best.id)){ used.add(best.id); out.push(best.id); }
+  });
+  return out;
+}
+async function processSpeech(raw){
+  const t = (raw || '').toLowerCase().trim(); if (!t) return [];
+  const mentioned = detectRoomType(t); if (mentioned) VOICE.room = mentioned;
+  const results = [];
+  for (const id of extractItems(t)){
+    const group = groupOf(id); if (!group) continue;
+    let roomType = VOICE.room || GROUP_ROOMTYPE[group];
+    if (!ROOM_TYPES[roomType] || !ROOM_TYPES[roomType].groups.includes(group)) roomType = GROUP_ROOMTYPE[group];
+    const room = addLineToRoomType(id, roomType, group, 1);
+    if (room) results.push({ matched: true, id, group, roomId: room.id, name: itemById(id) ? itemById(id).name : id, room: room.name, qty: 1, phrase: raw });
+  }
+  if (!results.length && !mentioned) results.push({ matched: false, phrase: raw });
+  return results;
+}
+
 let _vrec = null;
 function startVoiceWalk(){
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -1827,8 +1885,9 @@ function startVoiceWalk(){
 
   // shared by speech + the text box
   const processParts = async (raw) => {
-    const parts = (raw || '').split(/,|\band\b|\bthen\b|\balso\b/i).map(s=>s.trim()).filter(Boolean);
-    for (const p of parts){ const res = await processVoicePhrase(p); if (res && res.roomOnly){ renderFeed(); continue; } if (res && res.matched !== undefined){ feed.unshift(res); renderFeed(); } }
+    const rs = await processSpeech(raw);
+    rs.forEach(r => feed.unshift(r));
+    renderFeed();
   };
   const submitText = () => { const v = elText.value.trim(); if (!v) return; processParts(v); elText.value = ''; elText.focus(); };
   elSend.onclick = submitText;
