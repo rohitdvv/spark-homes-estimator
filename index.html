@@ -1700,9 +1700,11 @@ function confirmDel(msg, fn) {
    12. BOOT + PWA
    ===================================================================== */
 function boot() {
-  const curId = j(LS.current, '');
-  if (curId && projects.find(p => p.id === curId)) openProject(curId);
-  else render();
+  // Always land on the home screen (project list). Saved estimates are listed
+  // there, one tap to resume. We no longer auto-reopen the last project on
+  // launch, which felt like the app "never closed".
+  P = null;
+  render();
 }
 boot();
 
