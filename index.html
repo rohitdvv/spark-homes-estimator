@@ -234,6 +234,10 @@ function save() {
   }
   setLS(LS.current, P.id);
 }
+// debounced save for high-frequency inputs (typing) — avoids serializing the
+// whole projects array (incl. base64 photos) on every keystroke.
+let _saveT;
+function saveSoon(){ clearTimeout(_saveT); _saveT = setTimeout(save, 400); }
 function openProject(id) {
   P = projects.find(p => p.id === id);
   if (!P) return;
@@ -1103,10 +1107,8 @@ function createEstimate(addr) {
    opening that link on any device imports it. No server.
    ========================================================= */
 function loadScript(src){ return new Promise((res, rej) => { const s = document.createElement('script'); s.src = src; s.onload = res; s.onerror = rej; document.head.appendChild(s); }); }
-async function ensureShareLibs(){
-  if (!window.LZString) await loadScript('https://cdn.jsdelivr.net/npm/lz-string@1.5.0/libs/lz-string.min.js');
-  if (!window.qrcode)   await loadScript('https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.js');
-}
+async function ensureLZ(){ if (!window.LZString) await loadScript('https://cdn.jsdelivr.net/npm/lz-string@1.5.0/libs/lz-string.min.js'); }
+async function ensureQR(){ if (!window.qrcode) await loadScript('https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.js'); }
 function shareUrl(p){
   const slim = { v:1, name:p.name, address:p.address, rooms:p.rooms, cells:p.cells, nan:p.nan, priceOverrides:p.priceOverrides, deal:p.deal };
   return location.origin + location.pathname + '#import=' + LZString.compressToEncodedURIComponent(JSON.stringify(slim));
@@ -1120,7 +1122,7 @@ function projectFromShare(d){
 async function handleImport(){
   const m = location.hash.match(/import=([^&]+)/); if (!m) return false;
   try {
-    await ensureShareLibs();
+    await ensureLZ();
     const data = JSON.parse(LZString.decompressFromEncodedURIComponent(m[1]));
     const np = projectFromShare(data);
     projects.push(np); setLS(LS.projects, projects);
@@ -1133,25 +1135,29 @@ async function modalShare(){
   modal(`<div class="px-5 pb-8 pt-2 text-center">
     <h3 class="font-bold text-lg mb-1">Share estimate</h3>
     <p class="text-[12px] text-gray-400 mb-3">Scan on another phone, or copy the link. No server involved. Photos are not included in the link.</p>
-    <div id="qrBox" class="flex justify-center my-3 min-h-[210px] items-center"><span class="text-gray-400 text-sm">Generating…</span></div>
+    <div id="qrBox" class="flex justify-center my-3 min-h-[210px] items-center"><span class="text-gray-400 text-sm">Preparing…</span></div>
+    <input id="shareLink" readonly value="" class="w-full text-[11px] text-gray-500 bg-gray-50 border border-gray-200 rounded-lg px-2 py-2 mb-2 text-center" />
     <button data-m="copylink" class="press w-full py-3 bg-spark text-white rounded-xl font-bold">Copy link</button>
     <div id="shareNote" class="text-[11px] text-gray-400 mt-2"></div>
   </div>`);
+  const box = () => document.getElementById('qrBox');
+  // Step 1: the link itself only needs the compression lib.
+  try { await ensureLZ(); }
+  catch (e) { if (box()) box().innerHTML = '<span class="text-gray-400 text-sm px-6">Sharing needs to be online once to load. Try again with a connection.</span>'; return; }
+  const url = shareUrl(P); window.__shareUrl = url;
+  const linkEl = document.getElementById('shareLink'); if (linkEl) linkEl.value = url;
+  const note = document.getElementById('shareNote'); if (note) note.textContent = (url.length/1024).toFixed(1) + ' KB link';
+  // Step 2: the QR is a bonus — if it fails, the link above still works.
   try {
-    await ensureShareLibs();
-    const url = shareUrl(P); window.__shareUrl = url;
-    const box = document.getElementById('qrBox'); if (!box) return;
-    try {
-      const qr = qrcode(0, 'L'); qr.addData(url); qr.make();
-      box.innerHTML = qr.createImgTag(4, 8);
-      const img = box.querySelector('img');
+    await ensureQR();
+    const qr = qrcode(0, 'L'); qr.addData(url); qr.make();
+    if (box()) {
+      box().innerHTML = qr.createImgTag(4, 8);
+      const img = box().querySelector('img');
       if (img) { img.removeAttribute('width'); img.removeAttribute('height'); img.style.cssText = 'width:220px;height:220px;image-rendering:pixelated;border-radius:8px'; img.alt = 'estimate QR code'; }
-    } catch (e) {
-      box.innerHTML = '<span class="text-gray-400 text-sm px-6">This estimate is large for a QR — use “Copy link”.</span>';
     }
-    const note = document.getElementById('shareNote'); if (note) note.textContent = (url.length/1024).toFixed(1) + ' KB link';
   } catch (e) {
-    const box = document.getElementById('qrBox'); if (box) box.innerHTML = '<span class="text-gray-400 text-sm px-6">Could not load the QR generator (needs one online load first).</span>';
+    if (box()) box().innerHTML = '<span class="text-gray-400 text-sm px-6">QR unavailable here — use the link below.</span>';
   }
 }
 
@@ -1209,9 +1215,20 @@ function clientReport(){
   <div class="noprint"><button onclick="window.print()">Print / Save as PDF</button></div>
   <div class="foot">Generated by Spark Homes Repair Estimator &middot; ${new Date().toLocaleString()}</div>
   </body></html>`;
-  const w=window.open('','_blank');
-  if(!w){ toast('Allow pop-ups to open the report, or use Download ZIP', 4500); return; }
-  w.document.open(); w.document.write(html); w.document.close();
+  const ov=document.createElement('div');
+  ov.id='reportOverlay';
+  ov.className='fixed inset-0 z-[90] bg-white flex flex-col';
+  ov.innerHTML=`
+    <div class="flex items-center justify-between bg-ink text-white px-4 py-3" style="padding-top:max(0.75rem,env(safe-area-inset-top))">
+      <button id="rClose" class="press font-semibold text-[15px]">‹ Done</button>
+      <span class="font-bold text-sm">Client report</span>
+      <button id="rPrint" class="press bg-spark px-3 py-1.5 rounded-lg font-bold text-sm">Print / PDF</button>
+    </div>
+    <iframe id="rFrame" class="flex-1 w-full" style="border:0"></iframe>`;
+  document.body.appendChild(ov);
+  const fr=ov.querySelector('#rFrame'); fr.srcdoc=html;
+  ov.querySelector('#rClose').onclick=()=>ov.remove();
+  ov.querySelector('#rPrint').onclick=()=>{ try{ fr.contentWindow.focus(); fr.contentWindow.print(); }catch(e){ window.print(); } };
 }
 
 /* ---- Compare estimates: rank properties to decide which to pursue ---- */
@@ -1349,7 +1366,7 @@ function handle(e) {
     case 'cap': setCaption(d.id, el.value); break;
     case 'ocr': runOCR(d.id); break;
     case 'delphoto': delPhoto(d.id); break;
-    case 'deal': P.deal[d.k] = el.value; save(); softUpdateDeal(); break;
+    case 'deal': P.deal[d.k] = el.value; saveSoon(); softUpdateDeal(); break;
     case 'export': doExport(); break;
     case 'delproj': confirmDel('Delete this estimate permanently?', () => delProject(d.id)); break;
     case 'globalprice': modalGlobalPrice(); break;
@@ -1438,7 +1455,9 @@ function handleModal(e) {
     case 'priceReset': resetPrice(d.i); break;
     case 'saveitem': saveCustomItem(d.g); break;
     case 'resetGlobal': delete GLOBAL.prices[d.i]; saveGlobal(); modalGlobalPrice(); toast('Reset'); break;
-    case 'copylink': { const u = window.__shareUrl || ''; if (navigator.clipboard && u) navigator.clipboard.writeText(u).then(() => toast('Link copied ✓'), () => toast('Copy failed — long-press the QR area')); else toast('Copy not available'); break; }
+    case 'copylink': { const u = window.__shareUrl || ''; const inp = document.getElementById('shareLink');
+      if (navigator.clipboard && u) navigator.clipboard.writeText(u).then(() => toast('Link copied ✓'), () => { if (inp){ inp.focus(); inp.select(); } toast('Select the link and copy'); });
+      else if (inp){ inp.focus(); inp.select(); toast('Select the link and copy'); } else toast('Copy not available'); break; }
   }
 }
 
@@ -1512,7 +1531,7 @@ function softUpdateDeal() {
     main.innerHTML = viewDeal(); bind();
     if (k) { const ne = main.querySelector(`[data-k="${k}"]`); if (ne) { ne.focus(); try{ne.setSelectionRange(pos,pos);}catch{} } }
     document.getElementById('grand').textContent = fmt(grandTotal());
-  }, 120);
+  }, 300);
 }
 
 /* ---------- photos ---------- */
@@ -1737,13 +1756,20 @@ function startVoiceWalk(){
     <div class="px-5"><div id="vwInterim" class="text-[13px] text-gray-400 italic min-h-[1.2em] mb-2"></div></div>
     <div class="flex flex-col items-center pb-8" style="padding-bottom:max(2rem,env(safe-area-inset-bottom))">
       <div id="vwMic" class="w-16 h-16 rounded-full bg-spark flex items-center justify-center text-2xl animate-pulse">🎙️</div>
-      <div class="text-[12px] text-gray-400 mt-2">Listening… tap Done when finished</div>
+      <div id="vwStatus" class="text-[12px] text-gray-400 mt-2 px-6 text-center">Preparing voice AI…</div>
       <div id="vwTotal" class="font-extrabold text-2xl text-spark mt-1">${fmt(grandTotal())}</div>
     </div>`;
   document.body.appendChild(ov);
 
   const elFeed = ov.querySelector('#vwFeed'), elRoom = ov.querySelector('#vwRoom'),
-        elTotal = ov.querySelector('#vwTotal'), elInterim = ov.querySelector('#vwInterim');
+        elTotal = ov.querySelector('#vwTotal'), elInterim = ov.querySelector('#vwInterim'),
+        elStatus = ov.querySelector('#vwStatus'), elMic = ov.querySelector('#vwMic');
+  // preload the on-device matcher so the first phrases actually register
+  ensureVoiceIndex().then(ok => {
+    if (!document.body.contains(ov)) return;
+    if (ok) elStatus.textContent = 'Listening… tap Done when finished';
+    else { elStatus.textContent = 'Voice AI needs a connection the first time. Connect once, then reopen.'; elMic.classList.remove('animate-pulse'); }
+  });
   const renderFeed = () => {
     elTotal.textContent = fmt(grandTotal());
     elRoom.textContent = VOICE.room ? ('Room: ' + ROOM_TYPES[VOICE.room].label) : 'Say a room, then the repairs';
@@ -1772,12 +1798,17 @@ function startVoiceWalk(){
       const r = e.results[i];
       if (r.isFinal){
         const parts = r[0].transcript.split(/,|\band\b|\bthen\b|\balso\b/i).map(s=>s.trim()).filter(Boolean);
-        for (const p of parts){ const res = await processVoicePhrase(p); if (res && res.roomOnly){ renderFeed(); continue; } if (res && res.matched !== undefined){ feed.unshift(res); renderFeed(); } }
+        for (const p of parts){ const res = await processVoicePhrase(p); if (res && res.error){ elStatus.textContent = 'Voice AI unavailable — connect once to enable.'; continue; } if (res && res.roomOnly){ renderFeed(); continue; } if (res && res.matched !== undefined){ feed.unshift(res); renderFeed(); } }
       } else interim += r[0].transcript;
     }
     elInterim.textContent = interim;
   };
-  rec.onerror = (ev) => { if (ev.error === 'not-allowed' || ev.error === 'service-not-allowed') toast('Microphone blocked — allow mic access, then retry.', 5000); };
+  rec.onerror = (ev) => {
+    const msg = (ev.error === 'not-allowed' || ev.error === 'service-not-allowed') ? 'Microphone blocked — allow mic access, then reopen.'
+      : ev.error === 'network' ? 'Voice needs a connection — speech is processed online.'
+      : ev.error === 'no-speech' ? '' : '';
+    if (msg && elStatus) elStatus.textContent = msg;
+  };
   rec.onend = () => { if (active) { try { rec.start(); } catch(e){} } };
   try { rec.start(); } catch(e){ toast('Voice unavailable', 3000); }
 
