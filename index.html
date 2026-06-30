@@ -1384,25 +1384,39 @@ function delPhoto(id) { P.photos = P.photos.filter(p => p.id !== id); save(); re
    slot into suggestScope() later for higher accuracy.
    ========================================================= */
 // label (CLIP prompt) -> line item it implies, and where it belongs.
+// Entries with item:null are DECOYS (good-condition or irrelevant scenes). They
+// give the model a correct "nothing to do" option to land on, which is what
+// stops it forcing a defect label (e.g. a wood floor matching "carpet").
 const VISION_LABELS = [
+  // fixtures / appliances (most reliable)
   { prompt:'a refrigerator',                       item:'kt-17', room:'kitchen',  group:'appliances' },
   { prompt:'a kitchen stove or oven range',        item:'kt-13', room:'kitchen',  group:'appliances' },
   { prompt:'a dishwasher',                         item:'kt-16', room:'kitchen',  group:'appliances' },
-  { prompt:'worn or damaged kitchen cabinets',     item:'kt-05', room:'kitchen',  group:'cabinets' },
   { prompt:'a toilet',                             item:'ba-04', room:'bathroom', group:'vanity' },
   { prompt:'a bathroom vanity with a sink',        item:'ba-03', room:'bathroom', group:'vanity' },
   { prompt:'a bathtub or shower',                  item:'ba-07', room:'bathroom', group:'tub' },
-  { prompt:'cracked or damaged wall or floor tile',item:'ba-05', room:'bathroom', group:'btile' },
   { prompt:'a furnace or HVAC air handler',        item:'as-01', room:'systems',  group:'hvac' },
   { prompt:'a water heater tank',                  item:'as-08', room:'systems',  group:'plumbing' },
-  { prompt:'a water stained or damaged ceiling',   item:'ig-08', room:'interior', group:'paint' },
-  { prompt:'old worn carpet flooring',             item:'ig-06', room:'interior', group:'flooring' },
   { prompt:'a ceiling light fixture',              item:'ig-22', room:'interior', group:'lighting' },
-  { prompt:'an interior door',                     item:'ig-10', room:'interior', group:'doors' },
-  { prompt:'peeling or damaged exterior paint',    item:'ex-07', room:'exterior', group:'siding' },
   { prompt:'a garage door',                        item:'ex-21', room:'exterior', group:'garage' },
   { prompt:'a wooden privacy fence',               item:'ex-03', room:'exterior', group:'fence' },
-  { prompt:'an ordinary empty room with nothing notable', item:null, room:null, group:null } // null "none" class
+  // defects (coarse — gated hard below)
+  { prompt:'old worn or stained carpet that needs replacing', item:'ig-06', room:'interior', group:'flooring' },
+  { prompt:'cracked or damaged wall or floor tile',item:'ba-05', room:'bathroom', group:'btile' },
+  { prompt:'a water stained or water damaged ceiling', item:'ig-08', room:'interior', group:'paint' },
+  { prompt:'peeling or damaged exterior paint',    item:'ex-07', room:'exterior', group:'siding' },
+  { prompt:'worn or damaged kitchen cabinets',     item:'kt-05', room:'kitchen',  group:'cabinets' },
+  // decoys — correct "no action" / irrelevant classes (item:null)
+  { prompt:'a clean hardwood wood floor in good condition', item:null },
+  { prompt:'a clean tile floor in good condition',          item:null },
+  { prompt:'a luxury vinyl plank floor in good condition',  item:null },
+  { prompt:'a plain wall in good condition',                item:null },
+  { prompt:'a clean undamaged ceiling',                     item:null },
+  { prompt:'kitchen cabinets in good condition',            item:null },
+  { prompt:'an empty room',                                 item:null },
+  { prompt:'a person',                                      item:null },
+  { prompt:'the outdoors, trees or sky',                    item:null },
+  { prompt:'a blurry or dark photo of nothing',             item:null }
 ];
 
 const VISION = { state:'idle', clf:null, online:false }; // online=true would route to suggestScopeOnline()
@@ -1436,15 +1450,16 @@ async function suggestScopeOnline(dataUrl){ throw new Error('online vision not c
 
 async function suggestScopeOffline(dataUrl){
   if (!(await ensureVision())) return { error: 'unavailable' };
+  const FLOOR = 0.28; // min confidence for an actionable suggestion
   const labels = VISION_LABELS.map(l => 'a photo of ' + l.prompt);
-  const res = await VISION.clf(dataUrl, labels);
-  const ranked = res
-    .map(r => ({ ...VISION_LABELS[labels.indexOf(r.label)], score: r.score }))
-    .filter(r => r.item)                        // drop the "none" class
-    .filter(r => r.score >= 0.15)               // confidence floor
-    .filter(r => itemById(r.item))
-    .slice(0, 3);
-  return { suggestions: ranked };
+  const res = await VISION.clf(dataUrl, labels); // sorted desc by score
+  const ranked = res.map(r => ({ ...VISION_LABELS[labels.indexOf(r.label)], score: r.score }));
+  // Gate 1: if the single most likely label is a decoy (good condition /
+  // irrelevant), the scene needs no action — suggest nothing.
+  if (!ranked[0] || !ranked[0].item) return { suggestions: [] };
+  // Gate 2: surface only actionable labels clearly above the floor (max 2).
+  const out = ranked.filter(r => r.item && itemById(r.item) && r.score >= FLOOR).slice(0, 2);
+  return { suggestions: out };
 }
 
 /* add a confirmed suggestion to the estimate (creates the room type if absent) */
