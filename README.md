@@ -118,6 +118,28 @@ confirm; they never auto-add. The detection path (`suggestScope`) is structured
 so an online vision model can plug in for higher accuracy when there is signal,
 falling back to the offline classifier otherwise.
 
+### Field-workflow innovations
+
+Four features built around how the job actually happens (hands full, many
+houses, work shared and presented):
+
+- **Hands-free Voice Walkthrough** (Estimate tab): the agent narrates repairs
+  ("kitchen, new cabinets and a range; master bath, cracked tub"). The app
+  transcribes (Web Speech API), splits the speech into phrases, semantically
+  maps each to a line item (reusing the on-device embedding model), infers the
+  room, extracts a quantity, and adds it live with an undo feed. Saying just a
+  room name only sets the room context.
+- **Property comparison** (home screen): rank every saved estimate side by side
+  by repairs, projected profit, return, and GO/CAUTION/NO-GO, to decide which
+  property to pursue. Turns the app from a calculator into a decision tool.
+- **Backendless handoff** (Export tab): share a full estimate to another phone
+  by compressing it into the URL hash and showing a QR code / copy link. Opening
+  that link on any device imports it. No server (photos are not included in the
+  link).
+- **Branded client report** (Export tab): one tap opens a print-ready, branded
+  report (verdict, cost-by-section, full scope of work, photos) to save as PDF
+  or print, beyond the raw Excel.
+
 ---
 
 ## How pricing works

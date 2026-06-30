@@ -340,6 +340,12 @@ function viewEstimate() {
       <button data-act="addroom" class="press flex-shrink-0 px-3 py-2 rounded-2xl border border-dashed border-gray-300 text-gray-500 text-sm font-semibold">+ Room</button>
     </div>
 
+    <div class="px-4 pt-3">
+      <button data-act="voicewalk" class="press w-full flex items-center justify-center gap-2 py-2.5 rounded-xl bg-ink text-white font-semibold text-sm">
+        🎙️ Voice walkthrough <span class="text-[10px] font-bold bg-spark px-1.5 py-0.5 rounded-full">AI</span>
+      </button>
+    </div>
+
     ${room ? `
       <div class="px-4 pb-4">
         <div class="flex items-center justify-between mb-2 mt-1">
@@ -657,11 +663,17 @@ function viewExport() {
       <div class="text-[12px] font-semibold text-gray-400 uppercase mb-3">Cost by room</div>
       ${treemap(P.rooms.map(r=>({label:r.name, value:roomTotal(r.id)})))}
     </div>
+    <button data-act="report" class="press w-full py-3.5 bg-ink text-white rounded-2xl font-bold flex items-center justify-center gap-2">
+      📄 Client report (print / PDF)
+    </button>
+    <button data-act="share" class="press w-full py-3.5 border-2 border-spark text-spark rounded-2xl font-bold flex items-center justify-center gap-2">
+      🔗 Share to another phone (QR / link)
+    </button>
     <button data-act="export" class="press w-full py-4 bg-spark text-white rounded-2xl font-bold text-lg shadow-lg shadow-spark/30 flex items-center justify-center gap-2">
       <svg width="20" height="20" viewBox="0 0 24 24" fill="none"><path d="M12 3v12m0 0l-4-4m4 4l4-4M4 17v2a2 2 0 002 2h12a2 2 0 002-2v-2" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
       Download ZIP (Excel + photos)
     </button>
-    <p class="text-center text-[12px] text-gray-400">Generates an .xlsx cost breakdown plus every photo, bundled into one ZIP — works fully offline.</p>
+    <p class="text-center text-[12px] text-gray-400">Generates an .xlsx cost breakdown plus every photo, bundled into one ZIP, fully offline.</p>
   </div>`;
 }
 
@@ -990,7 +1002,10 @@ function renderHome() {
     <div class="flex-1 px-4 py-5 -mt-3 bg-[#f1f3f6] rounded-t-3xl">
       <button data-act="new" class="press w-full py-4 mb-5 bg-spark text-white rounded-2xl font-bold text-lg shadow-lg shadow-spark/30">+ New Estimate</button>
       ${projects.length === 0 ? `<p class="text-center text-gray-400 text-sm py-10">No saved estimates yet.<br/>Start your first walkthrough above.</p>` : `
-        <div class="text-[12px] font-semibold text-gray-400 uppercase mb-2">Saved estimates (${projects.length})</div>
+        <div class="flex items-center justify-between mb-2">
+          <div class="text-[12px] font-semibold text-gray-400 uppercase">Saved estimates (${projects.length})</div>
+          ${projects.length > 1 ? `<button data-act="compare" class="press text-[12px] font-bold text-spark">⚖ Compare</button>` : ''}
+        </div>
         <div class="space-y-2.5">
           ${projects.map(p => {
             const sP = P; P = p; const tot = grandTotal(); const pr = progress(); P = sP;
@@ -1080,6 +1095,162 @@ function createEstimate(addr) {
   P = blankProject(a || ('Estimate ' + (projects.length + 1)));
   P.address = a;
   save(); closeModal(); render();
+}
+
+/* =========================================================
+   Backendless handoff: share an estimate by link / QR.
+   The estimate (minus photos) is compressed into the URL hash;
+   opening that link on any device imports it. No server.
+   ========================================================= */
+function loadScript(src){ return new Promise((res, rej) => { const s = document.createElement('script'); s.src = src; s.onload = res; s.onerror = rej; document.head.appendChild(s); }); }
+async function ensureShareLibs(){
+  if (!window.LZString) await loadScript('https://cdn.jsdelivr.net/npm/lz-string@1.5.0/libs/lz-string.min.js');
+  if (!window.qrcode)   await loadScript('https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.js');
+}
+function shareUrl(p){
+  const slim = { v:1, name:p.name, address:p.address, rooms:p.rooms, cells:p.cells, nan:p.nan, priceOverrides:p.priceOverrides, deal:p.deal };
+  return location.origin + location.pathname + '#import=' + LZString.compressToEncodedURIComponent(JSON.stringify(slim));
+}
+function projectFromShare(d){
+  return { id:'p'+Date.now().toString(36), name:d.name||'Imported estimate', address:d.address||'',
+    createdAt:new Date().toISOString(), savedAt:new Date().toISOString(),
+    rooms:d.rooms||[], cells:d.cells||{}, nan:d.nan||{}, priceOverrides:d.priceOverrides||{}, photos:[],
+    deal:d.deal||{ arv:'', purchase:'', weeks:8, perWeek:350, sellPct:8 } };
+}
+async function handleImport(){
+  const m = location.hash.match(/import=([^&]+)/); if (!m) return false;
+  try {
+    await ensureShareLibs();
+    const data = JSON.parse(LZString.decompressFromEncodedURIComponent(m[1]));
+    const np = projectFromShare(data);
+    projects.push(np); setLS(LS.projects, projects);
+    history.replaceState(null, '', location.pathname);
+    P = np; setLS(LS.current, np.id);
+    return true;
+  } catch (e) { history.replaceState(null, '', location.pathname); return false; }
+}
+async function modalShare(){
+  modal(`<div class="px-5 pb-8 pt-2 text-center">
+    <h3 class="font-bold text-lg mb-1">Share estimate</h3>
+    <p class="text-[12px] text-gray-400 mb-3">Scan on another phone, or copy the link. No server involved. Photos are not included in the link.</p>
+    <div id="qrBox" class="flex justify-center my-3 min-h-[210px] items-center"><span class="text-gray-400 text-sm">Generating…</span></div>
+    <button data-m="copylink" class="press w-full py-3 bg-spark text-white rounded-xl font-bold">Copy link</button>
+    <div id="shareNote" class="text-[11px] text-gray-400 mt-2"></div>
+  </div>`);
+  try {
+    await ensureShareLibs();
+    const url = shareUrl(P); window.__shareUrl = url;
+    const box = document.getElementById('qrBox'); if (!box) return;
+    try {
+      const qr = qrcode(0, 'L'); qr.addData(url); qr.make();
+      box.innerHTML = qr.createImgTag(4, 8);
+      const img = box.querySelector('img');
+      if (img) { img.removeAttribute('width'); img.removeAttribute('height'); img.style.cssText = 'width:220px;height:220px;image-rendering:pixelated;border-radius:8px'; img.alt = 'estimate QR code'; }
+    } catch (e) {
+      box.innerHTML = '<span class="text-gray-400 text-sm px-6">This estimate is large for a QR — use “Copy link”.</span>';
+    }
+    const note = document.getElementById('shareNote'); if (note) note.textContent = (url.length/1024).toFixed(1) + ' KB link';
+  } catch (e) {
+    const box = document.getElementById('qrBox'); if (box) box.innerHTML = '<span class="text-gray-400 text-sm px-6">Could not load the QR generator (needs one online load first).</span>';
+  }
+}
+
+/* ---- Branded client report: a print / save-as-PDF document ---- */
+function clientReport(){
+  const d = P.deal, repairs = grandTotal();
+  const arv=+d.arv||0, pur=+d.purchase||0, hold=(+d.weeks||0)*(+d.perWeek||0), sell=arv*((+d.sellPct||0)/100);
+  const tc=pur+repairs+hold+sell, profit=arv-tc, roi=tc>0?profit/tc*100:0, mao=arv*0.7-repairs, hasDeal=!!(arv&&pur);
+  let verdict='', vcolor='#64748b';
+  if (hasDeal){ if(profit>=25000&&roi>=15){verdict='GO';vcolor='#16a34a';} else if(profit>0){verdict='CAUTION';vcolor='#d97706';} else {verdict='NO-GO';vcolor='#dc2626';} }
+  const pr=progress();
+  const sections={}; P.rooms.forEach(r=>{const s=ROOM_TYPES[r.type].section; sections[s]=(sections[s]||0)+roomTotal(r.id);});
+  const secRows=Object.entries(sections).filter(([,v])=>v>0).sort((a,b)=>b[1]-a[1]);
+  const maxSec=Math.max(1,...secRows.map(([,v])=>v));
+  const roomBlocks=P.rooms.map(r=>{
+    const items=[];
+    ROOM_TYPES[r.type].groups.forEach(g=>groupItemIds(g).forEach(id=>{const lt=lineTotal(r.id,g,id); if(lt>0){const c=P.cells[cellKey(r.id,g,id)]; const it=itemById(id); items.push(`<tr><td>${esc(it?it.name:id)}</td><td class="r">${c.q} ${esc(it?it.unit:'')}</td><td class="r">${fmt(lt)}</td></tr>`);}}));
+    if(!items.length) return '';
+    return `<div class="room"><div class="roomhd"><span>${esc(r.name)}</span><span>${fmt(roomTotal(r.id))}</span></div><table class="items">${items.join('')}</table></div>`;
+  }).join('');
+  const photos=P.photos.length?`<div class="photos">${P.photos.map(ph=>`<div class="ph"><img src="${ph.data}"/>${ph.caption?`<div class="cap">${esc(ph.caption)}</div>`:''}${ph.serial&&ph.serial!=='(none found)'?`<div class="sn">SN: ${esc(ph.serial)}</div>`:''}</div>`).join('')}</div>`:'';
+  const logo=location.href.split('#')[0].replace(/index\.html$/,'')+'spark-logo.png';
+  const html=`<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(P.name||'Property')} Repair Estimate</title>
+  <style>*{box-sizing:border-box}body{font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#0f172a;margin:0 auto;padding:28px;max-width:820px}
+  .top{display:flex;align-items:flex-start;justify-content:space-between;border-bottom:3px solid #d05000;padding-bottom:14px;margin-bottom:16px}
+  .top img{height:28px;margin-bottom:6px;display:block}h1{font-size:20px;margin:0}.sub{color:#64748b;font-size:13px;margin-top:2px}
+  .glabel{font-size:11px;color:#94a3b8;text-transform:uppercase;letter-spacing:.05em;text-align:right}.grand{font-size:30px;font-weight:800;color:#d05000;text-align:right;line-height:1}
+  .verdict{display:inline-block;color:#fff;font-weight:800;padding:5px 16px;border-radius:999px;font-size:15px}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin:14px 0}
+  .card{border:1px solid #e2e8f0;border-radius:12px;padding:14px}.card h2{font-size:12px;text-transform:uppercase;letter-spacing:.05em;color:#94a3b8;margin:0 0 10px}
+  .kv{display:flex;justify-content:space-between;font-size:13px;padding:3px 0}
+  .secrow{margin-bottom:8px}.secrow .lab{display:flex;justify-content:space-between;font-size:12px}.bar{height:8px;border-radius:4px;background:#d05000;margin-top:3px}
+  .room{margin-bottom:10px;break-inside:avoid}.roomhd{display:flex;justify-content:space-between;font-weight:700;font-size:14px;background:#f1f5f9;padding:6px 10px;border-radius:8px}
+  table.items{width:100%;border-collapse:collapse;font-size:12px;margin-top:4px}table.items td{padding:4px 10px;border-bottom:1px solid #f1f5f9}td.r{text-align:right;white-space:nowrap}
+  .photos{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:8px}.ph img{width:100%;height:110px;object-fit:cover;border-radius:6px}.ph .cap{font-size:10px;color:#475569;margin-top:2px}.ph .sn{font-size:10px;color:#d05000;font-weight:700}
+  h2.sec{font-size:13px;text-transform:uppercase;letter-spacing:.05em;color:#94a3b8;margin:22px 0 8px;border-top:1px solid #e2e8f0;padding-top:14px}
+  .foot{margin-top:24px;border-top:1px solid #e2e8f0;padding-top:10px;color:#94a3b8;font-size:11px;text-align:center}
+  .noprint{margin:18px 0;text-align:center}button{background:#d05000;color:#fff;border:0;padding:10px 22px;border-radius:10px;font-weight:700;font-size:14px;cursor:pointer}
+  @media print{.noprint{display:none}body{padding:0}}</style></head><body>
+  <div class="top"><div><img src="${logo}" onerror="this.style.display='none'"/><h1>Repair Estimate</h1><div class="sub">${esc(P.name||'Property')} &middot; ${new Date().toLocaleDateString()}</div></div>
+  <div><div class="glabel">Estimated repairs</div><div class="grand">${fmt(repairs)}</div></div></div>
+  ${hasDeal?`<div style="margin-bottom:14px"><span class="verdict" style="background:${vcolor}">${verdict}</span><span style="font-size:13px;margin-left:10px">Projected profit <b>${fmt(profit)}</b> &middot; Return ${roi.toFixed(0)}% &middot; Max offer ${fmt(mao)}</span></div>`:''}
+  <div class="grid">
+    <div class="card"><h2>Summary</h2>
+      <div class="kv"><span>Rooms</span><b>${P.rooms.length}</b></div>
+      <div class="kv"><span>Groups reviewed</span><b>${pr.done}/${pr.total}</b></div>
+      <div class="kv"><span>Photos</span><b>${P.photos.length}</b></div>
+      <div class="kv"><span>Repair total</span><b>${fmt(repairs)}</b></div></div>
+    <div class="card"><h2>Cost by section</h2>
+      ${secRows.map(([s,v])=>`<div class="secrow"><div class="lab"><span>${esc(s)}</span><span>${fmt(v)}</span></div><div class="bar" style="width:${Math.max(6,v/maxSec*100)}%"></div></div>`).join('')||'<div style="font-size:12px;color:#94a3b8">Nothing selected.</div>'}</div>
+  </div>
+  <h2 class="sec">Scope of work</h2>
+  ${roomBlocks||'<div style="font-size:13px;color:#94a3b8">No items selected yet.</div>'}
+  ${photos?`<h2 class="sec">Photos</h2>${photos}`:''}
+  <div class="noprint"><button onclick="window.print()">Print / Save as PDF</button></div>
+  <div class="foot">Generated by Spark Homes Repair Estimator &middot; ${new Date().toLocaleString()}</div>
+  </body></html>`;
+  const w=window.open('','_blank');
+  if(!w){ toast('Allow pop-ups to open the report, or use Download ZIP', 4500); return; }
+  w.document.open(); w.document.write(html); w.document.close();
+}
+
+/* ---- Compare estimates: rank properties to decide which to pursue ---- */
+function modalCompare(){
+  if (!projects.length){ toast('No estimates to compare'); return; }
+  const sP = P;
+  const rows = projects.map(p => {
+    P = p;
+    const repairs = grandTotal();
+    const d = p.deal, arv = +d.arv || 0, pur = +d.purchase || 0;
+    const hold = (+d.weeks||0)*(+d.perWeek||0), sell = arv*((+d.sellPct||0)/100);
+    const tc = pur + repairs + hold + sell, profit = arv - tc, roi = tc > 0 ? profit/tc*100 : 0;
+    const pr = progress();
+    let verdict = 'No deal', vc = 'bg-gray-100 text-gray-500';
+    const hasDeal = !!(arv && pur);
+    if (hasDeal){ if (profit>=25000 && roi>=15){ verdict='GO'; vc='bg-green-100 text-green-700'; } else if (profit>0){ verdict='CAUTION'; vc='bg-amber-100 text-amber-700'; } else { verdict='NO-GO'; vc='bg-red-100 text-red-700'; } }
+    return { p, repairs, profit, roi, verdict, vc, hasDeal, done: pr.done, total: pr.total };
+  });
+  P = sP;
+  rows.sort((a,b) => (b.hasDeal - a.hasDeal) || (b.profit - a.profit));
+  const best = rows.find(r => r.hasDeal && r.verdict === 'GO') || (rows[0].hasDeal ? rows[0] : null);
+  modal(`<div class="px-5 pb-8 pt-2">
+    <h3 class="font-bold text-lg mb-1">Compare estimates</h3>
+    <p class="text-[12px] text-gray-400 mb-3">Ranked by projected profit. ${best ? `Top pick: <span class="font-semibold text-green-600">${esc(best.p.name)}</span>.` : 'Add ARV and purchase price on the Deal tab to rank by profit.'}</p>
+    <div class="space-y-2">
+      ${rows.map((r,i) => `
+        <button data-m="open" data-id="${r.p.id}" class="press w-full text-left rounded-xl border ${i===0 && r.hasDeal ? 'border-spark bg-spark-50' : 'border-gray-200'} p-3">
+          <div class="flex items-center justify-between gap-2">
+            <div class="font-semibold truncate flex-1">${i===0 && r.hasDeal ? '⭐ ' : ''}${esc(r.p.name)}</div>
+            <span class="text-[10px] font-bold px-2 py-0.5 rounded-full ${r.vc} flex-shrink-0">${r.verdict}</span>
+          </div>
+          <div class="grid grid-cols-3 gap-1 mt-2 text-center">
+            <div><div class="text-[10px] text-gray-400">Repairs</div><div class="font-semibold text-[13px]">${fmt(r.repairs)}</div></div>
+            <div><div class="text-[10px] text-gray-400">Profit</div><div class="font-semibold text-[13px] ${r.hasDeal ? (r.profit>0?'text-green-600':'text-red-500') : 'text-gray-300'}">${r.hasDeal ? fmt(r.profit) : '—'}</div></div>
+            <div><div class="text-[10px] text-gray-400">Return</div><div class="font-semibold text-[13px] ${r.hasDeal ? '' : 'text-gray-300'}">${r.hasDeal ? r.roi.toFixed(0)+'%' : '—'}</div></div>
+          </div>
+        </button>`).join('')}
+    </div>
+  </div>`);
 }
 
 function modalPrice(id) {
@@ -1187,6 +1358,10 @@ function handle(e) {
     case 'chip': document.getElementById('chatin').value = d.q; sendChat(); break;
     case 'chatmic': voiceInput('chatin'); break;
     case 'dismissvoicehint': dismissVoiceHint(); render(); break;
+    case 'voicewalk': startVoiceWalk(); break;
+    case 'compare': modalCompare(); break;
+    case 'share': modalShare(); break;
+    case 'report': clientReport(); break;
   }
 }
 
@@ -1263,6 +1438,7 @@ function handleModal(e) {
     case 'priceReset': resetPrice(d.i); break;
     case 'saveitem': saveCustomItem(d.g); break;
     case 'resetGlobal': delete GLOBAL.prices[d.i]; saveGlobal(); modalGlobalPrice(); toast('Reset'); break;
+    case 'copylink': { const u = window.__shareUrl || ''; if (navigator.clipboard && u) navigator.clipboard.writeText(u).then(() => toast('Link copied ✓'), () => toast('Copy failed — long-press the QR area')); else toast('Copy not available'); break; }
   }
 }
 
@@ -1462,15 +1638,155 @@ async function suggestScopeOffline(dataUrl){
   return { suggestions: out };
 }
 
-/* add a confirmed suggestion to the estimate (creates the room type if absent) */
-function applyVisionSuggestion(item, roomType, group){
+/* shared: add a line item to the first room of a type (creating it if absent) */
+function addLineToRoomType(itemId, roomType, groupId, qty){
   let room = P.rooms.find(r => r.type === roomType);
   if (!room) { addRoom(P, roomType, true); room = P.rooms.find(r => r.type === roomType); }
-  if (!room) return;
-  P.cells[cellKey(room.id, group, item)] = { q: 1 };
-  if (P.nan[nanKey(room.id, group)]) delete P.nan[nanKey(room.id, group)];
+  if (!room) return null;
+  P.cells[cellKey(room.id, groupId, itemId)] = { q: qty || 1 };
+  if (P.nan[nanKey(room.id, groupId)]) delete P.nan[nanKey(room.id, groupId)];
   save();
-  toast((itemById(item) ? itemById(item).name : 'Item') + ' added to ' + room.name);
+  return room;
+}
+function applyVisionSuggestion(item, roomType, group){
+  const room = addLineToRoomType(item, roomType, group, 1);
+  if (room) toast((itemById(item) ? itemById(item).name : 'Item') + ' added to ' + room.name);
+}
+
+/* item -> its group and home room type (precomputed for voice/vision placement) */
+const ITEM_GROUP = {}; Object.entries(GROUPS).forEach(([gid,g]) => g.ids.forEach(id => { if (ITEM_GROUP[id] == null) ITEM_GROUP[id] = gid; }));
+const GROUP_ROOMTYPE = {}; Object.entries(ROOM_TYPES).forEach(([t,rt]) => rt.groups.forEach(g => { if (GROUP_ROOMTYPE[g] == null) GROUP_ROOMTYPE[g] = t; }));
+function groupOf(id){ return ITEM_GROUP[id] || (GLOBAL.custom.find(c => c.id === id) || {}).groupId; }
+
+/* =========================================================
+   Hands-free Voice Walkthrough.
+   The agent narrates repairs; we transcribe (Web Speech API),
+   split into phrases, semantically map each to a line item
+   (reusing the on-device embedding model), infer the room,
+   extract a quantity, and add it live with an undo feed.
+   ========================================================= */
+const VOICE = { vecs:null, room:null };
+const NUMWORDS = { one:1, two:2, three:3, four:4, five:5, six:6, seven:7, eight:8, nine:9, ten:10 };
+const ROOM_KEYWORDS = [
+  [/\b(kitchen)\b/, 'kitchen'],
+  [/\b(bath|bathroom|powder room|shower room|restroom)\b/, 'bathroom'],
+  [/\b(bedroom|master|guest room)\b/, 'bedroom'],
+  [/\b(living|family|den|common|dining|lounge)\b/, 'living'],
+  [/\b(exterior|outside|outdoor|yard|fence|garage|roof|siding|gutter|landscap|driveway)\b/, 'exterior'],
+  [/\b(system|hvac|furnace|a\/c|air condition|electrical|wiring|panel|plumbing|water heater|foundation|structural|insulation)\b/, 'systems'],
+  [/\b(interior|hallway|\bhall\b|whole house|general|stairs|stairway|entry|foyer)\b/, 'interior']
+];
+function detectRoomType(text){ for (const [re,t] of ROOM_KEYWORDS) if (re.test(text)) return t; return null; }
+function parseQty(text){
+  const m = text.match(/\b(\d{1,5})\b/); if (m) return Math.max(1, +m[1]);
+  for (const w in NUMWORDS) if (new RegExp('\\b' + w + '\\b').test(text)) return NUMWORDS[w];
+  return 1;
+}
+async function ensureVoiceIndex(){
+  if (VOICE.vecs) return true;
+  if (!(await ensureSemantic())) return false;
+  VOICE.vecs = [];
+  for (const it of catalog()) VOICE.vecs.push({ id: it.id, vec: await SEM.embed(it.name) });
+  return true;
+}
+/* parse one spoken phrase -> add a line item (or report no match) */
+const ROOM_WORDS = /\b(kitchen|bathroom|bath|powder|shower|restroom|bedroom|master|guest|living|family|den|common|dining|lounge|exterior|outside|outdoor|yard|garage|interior|hallway|hall|foyer|entry|room)\b/g;
+async function processVoicePhrase(text){
+  const t = (text || '').toLowerCase().trim(); if (!t) return null;
+  const mentioned = detectRoomType(t); if (mentioned) VOICE.room = mentioned;
+  if (!(await ensureVoiceIndex())) return { error: 'unavailable' };
+  // if the phrase is essentially just a room name, only set context (don't add an item)
+  let phraseForMatch = t;
+  if (mentioned){
+    const residual = t.replace(ROOM_WORDS, ' ').replace(/\b(the|a|an|in|on|is|are|of|please|some|need|needs|new)\b/g, ' ').replace(/\s+/g, ' ').trim();
+    if (residual.length < 3) return { phrase: t, matched: false, roomOnly: true };
+    phraseForMatch = residual;
+  }
+  const qv = await SEM.embed(phraseForMatch);
+  let best = null;
+  VOICE.vecs.forEach(v => { let s = 0; for (let i = 0; i < v.vec.length; i++) s += qv[i] * v.vec[i]; if (!best || s > best.s) best = { s, id: v.id }; });
+  if (!best || best.s < 0.34) return { phrase: t, matched: false };
+  const id = best.id, group = groupOf(id);
+  if (!group) return { phrase: t, matched: false };
+  let roomType = VOICE.room || GROUP_ROOMTYPE[group];
+  if (!ROOM_TYPES[roomType] || !ROOM_TYPES[roomType].groups.includes(group)) roomType = GROUP_ROOMTYPE[group];
+  const qty = parseQty(t);
+  const room = addLineToRoomType(id, roomType, group, qty);
+  if (!room) return { phrase: t, matched: false };
+  return { phrase: t, matched: true, id, group, roomId: room.id, name: itemById(id) ? itemById(id).name : id, room: room.name, qty, score: best.s };
+}
+
+let _vrec = null;
+function startVoiceWalk(){
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SR){ toast('Voice not supported in this browser — try Chrome.', 4500); return; }
+  VOICE.room = null;
+  const feed = [];
+  const ov = document.createElement('div');
+  ov.id = 'voiceWalk';
+  ov.className = 'fixed inset-0 z-[80] bg-ink text-white flex flex-col';
+  ov.innerHTML = `
+    <div class="px-5 flex items-center justify-between" style="padding-top:max(1.25rem,env(safe-area-inset-top))">
+      <div>
+        <div class="font-extrabold text-lg">Voice walkthrough</div>
+        <div id="vwRoom" class="text-[12px] text-gray-400">Say a room, then the repairs</div>
+      </div>
+      <button id="vwDone" class="press bg-white text-ink font-bold px-4 py-2 rounded-full text-sm">Done</button>
+    </div>
+    <div class="flex-1 overflow-y-auto px-5 py-4"><div id="vwFeed" class="space-y-2"></div></div>
+    <div class="px-5"><div id="vwInterim" class="text-[13px] text-gray-400 italic min-h-[1.2em] mb-2"></div></div>
+    <div class="flex flex-col items-center pb-8" style="padding-bottom:max(2rem,env(safe-area-inset-bottom))">
+      <div id="vwMic" class="w-16 h-16 rounded-full bg-spark flex items-center justify-center text-2xl animate-pulse">🎙️</div>
+      <div class="text-[12px] text-gray-400 mt-2">Listening… tap Done when finished</div>
+      <div id="vwTotal" class="font-extrabold text-2xl text-spark mt-1">${fmt(grandTotal())}</div>
+    </div>`;
+  document.body.appendChild(ov);
+
+  const elFeed = ov.querySelector('#vwFeed'), elRoom = ov.querySelector('#vwRoom'),
+        elTotal = ov.querySelector('#vwTotal'), elInterim = ov.querySelector('#vwInterim');
+  const renderFeed = () => {
+    elTotal.textContent = fmt(grandTotal());
+    elRoom.textContent = VOICE.room ? ('Room: ' + ROOM_TYPES[VOICE.room].label) : 'Say a room, then the repairs';
+    if (!feed.length){ elFeed.innerHTML = `<div class="text-center text-gray-500 text-[13px] py-10">Try: “kitchen, new cabinets and a range”, then “master bath, cracked tub and a new vanity”.</div>`; return; }
+    elFeed.innerHTML = feed.map((f,i)=> f.matched
+      ? `<div class="flex items-center gap-2 bg-white/10 rounded-xl px-3 py-2">
+          <div class="flex-1 min-w-0"><div class="text-[14px] font-semibold truncate">${esc(f.name)}${f.qty>1?` ×${f.qty}`:''}</div>
+          <div class="text-[11px] text-gray-400 truncate">${esc(f.room)} · “${esc(f.phrase)}”</div></div>
+          <button data-undo="${i}" class="press text-[12px] text-gray-300 font-bold px-2">undo</button></div>`
+      : `<div class="bg-white/5 rounded-xl px-3 py-2 text-[12px] text-gray-500">No repair matched in “${esc(f.phrase)}”</div>`
+    ).join('');
+    elFeed.querySelectorAll('[data-undo]').forEach(b => b.onclick = () => {
+      const f = feed[+b.dataset.undo]; if (!f || !f.matched) return;
+      delete P.cells[cellKey(f.roomId, f.group, f.id)]; save();
+      f.matched = false; f.phrase = f.name + ' (removed)'; renderFeed();
+    });
+  };
+  renderFeed();
+
+  let active = true;
+  const rec = new SR(); _vrec = rec;
+  rec.lang = 'en-US'; rec.continuous = true; rec.interimResults = true;
+  rec.onresult = async (e) => {
+    let interim = '';
+    for (let i = e.resultIndex; i < e.results.length; i++){
+      const r = e.results[i];
+      if (r.isFinal){
+        const parts = r[0].transcript.split(/,|\band\b|\bthen\b|\balso\b/i).map(s=>s.trim()).filter(Boolean);
+        for (const p of parts){ const res = await processVoicePhrase(p); if (res && res.roomOnly){ renderFeed(); continue; } if (res && res.matched !== undefined){ feed.unshift(res); renderFeed(); } }
+      } else interim += r[0].transcript;
+    }
+    elInterim.textContent = interim;
+  };
+  rec.onerror = (ev) => { if (ev.error === 'not-allowed' || ev.error === 'service-not-allowed') toast('Microphone blocked — allow mic access, then retry.', 5000); };
+  rec.onend = () => { if (active) { try { rec.start(); } catch(e){} } };
+  try { rec.start(); } catch(e){ toast('Voice unavailable', 3000); }
+
+  ov.querySelector('#vwDone').onclick = () => {
+    active = false; try { rec.stop(); } catch(e){} _vrec = null;
+    ov.remove(); render();
+    const added = feed.filter(f=>f.matched).length;
+    toast(added ? added + ' item' + (added!==1?'s':'') + ' added by voice' : 'Voice walkthrough ended');
+  };
 }
 
 /* ---------- live video capture (camera walkthrough → grab frames) ---------- */
@@ -1700,9 +2016,14 @@ function confirmDel(msg, fn) {
    12. BOOT + PWA
    ===================================================================== */
 function boot() {
-  // Always land on the home screen (project list). Saved estimates are listed
-  // there, one tap to resume. We no longer auto-reopen the last project on
-  // launch, which felt like the app "never closed".
+  // Imported estimate via shared link? Bring it in, then show it.
+  if (/import=/.test(location.hash)) {
+    P = null; render();
+    handleImport().then(ok => { render(); toast(ok ? 'Estimate imported ✓' : 'Could not import that link', 3500); });
+    return;
+  }
+  // Otherwise always land on the home screen (saved estimates listed there,
+  // one tap to resume). We no longer auto-reopen the last project on launch.
   P = null;
   render();
 }
