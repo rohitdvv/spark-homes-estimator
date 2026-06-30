@@ -396,7 +396,7 @@ function groupCard(roomId, gid) {
       <div class="px-3 pb-3 pt-0 border-t border-gray-100">
         <label class="flex items-center gap-2 py-2.5 px-1 cursor-pointer">
           <input type="checkbox" data-act="nan" data-k="${nanKey(roomId, gid)}" ${nan?'checked':''} class="w-4 h-4 accent-spark">
-          <span class="text-[13px] text-gray-500 font-medium">No Action Needed — reviewed, no work</span>
+          <span class="text-[13px] text-gray-500 font-medium">No Action Needed (reviewed, no work)</span>
         </label>
         ${ids.map(id => lineRow(roomId, gid, id)).join('')}
         <button data-act="additem" data-g="${gid}" class="press w-full mt-1 py-2 text-[13px] text-gray-400 font-semibold border border-dashed border-gray-200 rounded-xl">+ Add custom item</button>
@@ -1710,10 +1710,23 @@ async function ensureVoiceIndex(){
 }
 /* parse one spoken phrase -> add a line item (or report no match) */
 const ROOM_WORDS = /\b(kitchen|bathroom|bath|powder|shower|restroom|bedroom|master|guest|living|family|den|common|dining|lounge|exterior|outside|outdoor|yard|garage|interior|hallway|hall|foyer|entry|room)\b/g;
+const STOP = new Set('the a an and or is are it its on in at of to for with new old need needs needed replace replaced install installed add put get got this that here there look looks looking bad broken damage damaged damages fix some please all both also then they we want some'.split(' '));
+/* instant keyword match against item names — works with no model, no network */
+function matchItemFromText(t){
+  const words = (t.toLowerCase().match(/[a-z]+/g) || []).filter(w => w.length > 2 && !STOP.has(w));
+  if (!words.length) return null;
+  const ws = new Set(words);
+  let best = null;
+  catalog().forEach(it => {
+    const toks = (it.name.toLowerCase().match(/[a-z]+/g) || []).filter(w => w.length > 2 && !STOP.has(w));
+    let hits = 0; toks.forEach(tk => { if (ws.has(tk)) hits++; });
+    if (hits > 0){ const score = hits + hits / Math.max(toks.length, 1); if (!best || score > best.score) best = { score, hits, id: it.id }; }
+  });
+  return best;
+}
 async function processVoicePhrase(text){
   const t = (text || '').toLowerCase().trim(); if (!t) return null;
   const mentioned = detectRoomType(t); if (mentioned) VOICE.room = mentioned;
-  if (!(await ensureVoiceIndex())) return { error: 'unavailable' };
   // if the phrase is essentially just a room name, only set context (don't add an item)
   let phraseForMatch = t;
   if (mentioned){
@@ -1721,24 +1734,30 @@ async function processVoicePhrase(text){
     if (residual.length < 3) return { phrase: t, matched: false, roomOnly: true };
     phraseForMatch = residual;
   }
-  const qv = await SEM.embed(phraseForMatch);
-  let best = null;
-  VOICE.vecs.forEach(v => { let s = 0; for (let i = 0; i < v.vec.length; i++) s += qv[i] * v.vec[i]; if (!best || s > best.s) best = { s, id: v.id }; });
-  if (!best || best.s < 0.34) return { phrase: t, matched: false };
-  const id = best.id, group = groupOf(id);
-  if (!group) return { phrase: t, matched: false };
+  // 1) instant keyword match (no model dependency)
+  let id = null;
+  const kw = matchItemFromText(phraseForMatch);
+  if (kw && kw.hits >= 1) id = kw.id;
+  // 2) fuzzy semantic fallback only if keyword missed and the model is loaded
+  if (!id && await ensureVoiceIndex()){
+    const qv = await SEM.embed(phraseForMatch);
+    let best = null;
+    VOICE.vecs.forEach(v => { let s = 0; for (let i = 0; i < v.vec.length; i++) s += qv[i] * v.vec[i]; if (!best || s > best.s) best = { s, id: v.id }; });
+    if (best && best.s >= 0.32) id = best.id;
+  }
+  if (!id) return { phrase: t, matched: false };
+  const group = groupOf(id); if (!group) return { phrase: t, matched: false };
   let roomType = VOICE.room || GROUP_ROOMTYPE[group];
   if (!ROOM_TYPES[roomType] || !ROOM_TYPES[roomType].groups.includes(group)) roomType = GROUP_ROOMTYPE[group];
   const qty = parseQty(t);
   const room = addLineToRoomType(id, roomType, group, qty);
   if (!room) return { phrase: t, matched: false };
-  return { phrase: t, matched: true, id, group, roomId: room.id, name: itemById(id) ? itemById(id).name : id, room: room.name, qty, score: best.s };
+  return { phrase: t, matched: true, id, group, roomId: room.id, name: itemById(id) ? itemById(id).name : id, room: room.name, qty };
 }
 
 let _vrec = null;
 function startVoiceWalk(){
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-  if (!SR){ toast('Voice not supported in this browser — try Chrome.', 4500); return; }
   VOICE.room = null;
   const feed = [];
   const ov = document.createElement('div');
@@ -1748,35 +1767,36 @@ function startVoiceWalk(){
     <div class="px-5 flex items-center justify-between" style="padding-top:max(1.25rem,env(safe-area-inset-top))">
       <div>
         <div class="font-extrabold text-lg">Voice walkthrough</div>
-        <div id="vwRoom" class="text-[12px] text-gray-400">Say a room, then the repairs</div>
+        <div id="vwRoom" class="text-[12px] text-gray-400">Say or type a room, then the repairs</div>
       </div>
       <button id="vwDone" class="press bg-white text-ink font-bold px-4 py-2 rounded-full text-sm">Done</button>
     </div>
     <div class="flex-1 overflow-y-auto px-5 py-4"><div id="vwFeed" class="space-y-2"></div></div>
-    <div class="px-5"><div id="vwInterim" class="text-[13px] text-gray-400 italic min-h-[1.2em] mb-2"></div></div>
-    <div class="flex flex-col items-center pb-8" style="padding-bottom:max(2rem,env(safe-area-inset-bottom))">
-      <div id="vwMic" class="w-16 h-16 rounded-full bg-spark flex items-center justify-center text-2xl animate-pulse">🎙️</div>
-      <div id="vwStatus" class="text-[12px] text-gray-400 mt-2 px-6 text-center">Preparing voice AI…</div>
-      <div id="vwTotal" class="font-extrabold text-2xl text-spark mt-1">${fmt(grandTotal())}</div>
+    <div id="vwInterim" class="px-5 text-[13px] text-gray-400 italic min-h-[1.2em] mb-1"></div>
+    <div class="px-5 pb-2 flex gap-2">
+      <input id="vwText" enterkeyhint="done" placeholder="Type: kitchen, new cabinets, a range…" class="flex-1 px-3 py-2.5 rounded-xl bg-white/10 text-white placeholder-gray-500 outline-none text-[14px]"/>
+      <button id="vwSend" class="press bg-spark text-white px-4 rounded-xl font-bold">Add</button>
+    </div>
+    <div class="flex flex-col items-center pb-6" style="padding-bottom:max(1.5rem,env(safe-area-inset-bottom))">
+      <div id="vwMic" class="w-14 h-14 rounded-full bg-spark flex items-center justify-center text-2xl animate-pulse">🎙️</div>
+      <div id="vwStatus" class="text-[12px] text-gray-400 mt-2 px-6 text-center">Starting…</div>
+      <div id="vwTotal" class="font-extrabold text-xl text-spark mt-1">${fmt(grandTotal())}</div>
     </div>`;
   document.body.appendChild(ov);
 
   const elFeed = ov.querySelector('#vwFeed'), elRoom = ov.querySelector('#vwRoom'),
         elTotal = ov.querySelector('#vwTotal'), elInterim = ov.querySelector('#vwInterim'),
-        elStatus = ov.querySelector('#vwStatus'), elMic = ov.querySelector('#vwMic');
-  // preload the on-device matcher so the first phrases actually register
-  ensureVoiceIndex().then(ok => {
-    if (!document.body.contains(ov)) return;
-    if (ok) elStatus.textContent = 'Listening… tap Done when finished';
-    else { elStatus.textContent = 'Voice AI needs a connection the first time. Connect once, then reopen.'; elMic.classList.remove('animate-pulse'); }
-  });
+        elStatus = ov.querySelector('#vwStatus'), elMic = ov.querySelector('#vwMic'),
+        elText = ov.querySelector('#vwText'), elSend = ov.querySelector('#vwSend');
+  ensureVoiceIndex(); // warm the fuzzy matcher in the background (keyword match works without it)
+
   const renderFeed = () => {
     elTotal.textContent = fmt(grandTotal());
-    elRoom.textContent = VOICE.room ? ('Room: ' + ROOM_TYPES[VOICE.room].label) : 'Say a room, then the repairs';
-    if (!feed.length){ elFeed.innerHTML = `<div class="text-center text-gray-500 text-[13px] py-10">Try: “kitchen, new cabinets and a range”, then “master bath, cracked tub and a new vanity”.</div>`; return; }
+    elRoom.textContent = VOICE.room ? ('Room: ' + ROOM_TYPES[VOICE.room].label) : 'Say or type a room, then the repairs';
+    if (!feed.length){ elFeed.innerHTML = `<div class="text-center text-gray-500 text-[13px] py-10">Try: “kitchen, new cabinets and a range”, then “bathroom, toilet and a new vanity”.</div>`; return; }
     elFeed.innerHTML = feed.map((f,i)=> f.matched
       ? `<div class="flex items-center gap-2 bg-white/10 rounded-xl px-3 py-2">
-          <div class="flex-1 min-w-0"><div class="text-[14px] font-semibold truncate">${esc(f.name)}${f.qty>1?` ×${f.qty}`:''}</div>
+          <div class="flex-1 min-w-0"><div class="text-[14px] font-semibold truncate">✓ ${esc(f.name)}${f.qty>1?` ×${f.qty}`:''}</div>
           <div class="text-[11px] text-gray-400 truncate">${esc(f.room)} · “${esc(f.phrase)}”</div></div>
           <button data-undo="${i}" class="press text-[12px] text-gray-300 font-bold px-2">undo</button></div>`
       : `<div class="bg-white/5 rounded-xl px-3 py-2 text-[12px] text-gray-500">No repair matched in “${esc(f.phrase)}”</div>`
@@ -1789,34 +1809,48 @@ function startVoiceWalk(){
   };
   renderFeed();
 
-  let active = true;
-  const rec = new SR(); _vrec = rec;
-  rec.lang = 'en-US'; rec.continuous = true; rec.interimResults = true;
-  rec.onresult = async (e) => {
-    let interim = '';
-    for (let i = e.resultIndex; i < e.results.length; i++){
-      const r = e.results[i];
-      if (r.isFinal){
-        const parts = r[0].transcript.split(/,|\band\b|\bthen\b|\balso\b/i).map(s=>s.trim()).filter(Boolean);
-        for (const p of parts){ const res = await processVoicePhrase(p); if (res && res.error){ elStatus.textContent = 'Voice AI unavailable — connect once to enable.'; continue; } if (res && res.roomOnly){ renderFeed(); continue; } if (res && res.matched !== undefined){ feed.unshift(res); renderFeed(); } }
-      } else interim += r[0].transcript;
-    }
-    elInterim.textContent = interim;
+  // shared by speech + the text box
+  const processParts = async (raw) => {
+    const parts = (raw || '').split(/,|\band\b|\bthen\b|\balso\b/i).map(s=>s.trim()).filter(Boolean);
+    for (const p of parts){ const res = await processVoicePhrase(p); if (res && res.roomOnly){ renderFeed(); continue; } if (res && res.matched !== undefined){ feed.unshift(res); renderFeed(); } }
   };
-  rec.onerror = (ev) => {
-    const msg = (ev.error === 'not-allowed' || ev.error === 'service-not-allowed') ? 'Microphone blocked — allow mic access, then reopen.'
-      : ev.error === 'network' ? 'Voice needs a connection — speech is processed online.'
-      : ev.error === 'no-speech' ? '' : '';
-    if (msg && elStatus) elStatus.textContent = msg;
-  };
-  rec.onend = () => { if (active) { try { rec.start(); } catch(e){} } };
-  try { rec.start(); } catch(e){ toast('Voice unavailable', 3000); }
+  const submitText = () => { const v = elText.value.trim(); if (!v) return; processParts(v); elText.value = ''; elText.focus(); };
+  elSend.onclick = submitText;
+  elText.onkeydown = (e) => { if (e.key === 'Enter'){ e.preventDefault(); submitText(); } };
+
+  let active = false;
+  if (SR){
+    active = true;
+    const rec = new SR(); _vrec = rec;
+    rec.lang = 'en-US'; rec.continuous = true; rec.interimResults = true;
+    rec.onresult = async (e) => {
+      let interim = '';
+      for (let i = e.resultIndex; i < e.results.length; i++){
+        const r = e.results[i];
+        if (r.isFinal) await processParts(r[0].transcript);
+        else interim += r[0].transcript;
+      }
+      elInterim.textContent = interim;
+    };
+    rec.onerror = (ev) => {
+      const msg = (ev.error === 'not-allowed' || ev.error === 'service-not-allowed') ? 'Microphone blocked — allow it, or just type below.'
+        : ev.error === 'network' ? 'No connection for speech — type below instead.'
+        : '';
+      if (msg) elStatus.textContent = msg;
+    };
+    rec.onend = () => { if (active) { try { rec.start(); } catch(e){} } };
+    try { rec.start(); elStatus.textContent = 'Listening… or type below'; } catch(e){ elStatus.textContent = 'Type the repairs below'; }
+  } else {
+    elStatus.textContent = 'Voice input not supported here — type the repairs below.';
+    elMic.classList.remove('animate-pulse'); elMic.style.opacity = '0.4';
+  }
 
   ov.querySelector('#vwDone').onclick = () => {
-    active = false; try { rec.stop(); } catch(e){} _vrec = null;
+    active = false; if (_vrec){ try { _vrec.stop(); } catch(e){} _vrec = null; }
+    const added = feed.filter(f => f.matched);
+    if (added.length){ UI.tab = 'estimate'; UI.roomId = added[0].roomId; }
     ov.remove(); render();
-    const added = feed.filter(f=>f.matched).length;
-    toast(added ? added + ' item' + (added!==1?'s':'') + ' added by voice' : 'Voice walkthrough ended');
+    toast(added.length ? added.length + ' item' + (added.length!==1?'s':'') + ' added — check the estimate' : 'Voice walkthrough ended');
   };
 }
 

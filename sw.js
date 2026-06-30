@@ -1,7 +1,7 @@
 /* Spark Homes Repair Estimator — service worker
  * Offline-first: pre-cache the app shell + icons, runtime-cache CDN libraries.
  * Bump CACHE version to force clients to refresh cached assets. */
-const CACHE = 'spark-estimator-v14';
+const CACHE = 'spark-estimator-v15';
 
 // App shell — everything needed to boot fully offline.
 const SHELL = [
