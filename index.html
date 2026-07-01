@@ -89,6 +89,19 @@
   html.dark input { background-color:#0b1220; color:#e2e8f0; }
   html.dark input::placeholder { color:#64748b; }
   html.dark .shadow-sm, html.dark .shadow, html.dark .shadow-lg { box-shadow:0 1px 3px rgba(0,0,0,.45) !important; }
+  /* keep the brand logo visible on dark surfaces */
+  html.dark img[src*="spark-logo"] { filter: brightness(0) invert(1); }
+  /* smooth theme flip: transition colours only while toggling (no relayout) */
+  html.theme-anim *:not(.themesw):not(.knob) {
+    transition: background-color .4s ease, color .4s ease, border-color .4s ease, fill .4s ease !important;
+  }
+  /* iOS-style theme switch */
+  .themesw { display:inline-flex; align-items:center; width:46px; height:26px; border-radius:999px;
+    background:#cbd5e1; position:relative; flex-shrink:0; vertical-align:middle; transition:background-color .3s ease; }
+  html.dark .themesw { background:var(--spark); }
+  .themesw .knob { position:absolute; top:3px; left:3px; width:20px; height:20px; border-radius:50%;
+    background:#fff; box-shadow:0 1px 2px rgba(0,0,0,.35); transition:transform .3s cubic-bezier(.34,1.56,.64,1); }
+  html.dark .themesw .knob { transform:translateX(20px); }
 </style>
 </head>
 <body class="select-none">
@@ -174,8 +187,15 @@ const setLS = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); retu
 // dark mode: apply the saved preference before first paint
 try { if (localStorage.getItem('spark_dark') === '1') document.documentElement.classList.add('dark'); } catch(e){}
 function isDark(){ return document.documentElement.classList.contains('dark'); }
-function toggleDark(){ const on = document.documentElement.classList.toggle('dark'); try { localStorage.setItem('spark_dark', on ? '1' : '0'); } catch(e){} render(); }
-const darkBtn = (cls) => `<button data-act="dark" class="press ${cls}" title="Toggle dark mode">${isDark() ? '☀️' : '🌙'}</button>`;
+function toggleDark(){
+  const el = document.documentElement;
+  el.classList.add('theme-anim');               // enable colour transitions just for the flip
+  const on = el.classList.toggle('dark');        // pure CSS drives the switch + surfaces, no re-render
+  try { localStorage.setItem('spark_dark', on ? '1' : '0'); } catch(e){}
+  clearTimeout(toggleDark._t);
+  toggleDark._t = setTimeout(() => el.classList.remove('theme-anim'), 500);
+}
+const darkBtn = (cls) => `<button data-act="dark" role="switch" aria-label="Toggle dark mode" class="themesw ${cls||''}"><span class="knob"></span></button>`;
 
 let GLOBAL = j(LS.global, { prices: {}, custom: [], deleted: [] });
 function saveGlobal() { setLS(LS.global, GLOBAL); }
@@ -334,7 +354,7 @@ function header(pr) {
         </button>
         <div class="text-[11px] text-gray-400">${pr.done}/${pr.total} groups reviewed</div>
       </div>
-      ${darkBtn('text-lg leading-none px-1')}
+      ${darkBtn('mr-1')}
       <div class="text-right">
         <div class="text-[10px] uppercase tracking-wide text-gray-400 font-semibold">Estimate</div>
         <div id="grand" class="text-xl font-extrabold text-spark leading-none">${fmt(grandTotal())}</div>
@@ -1021,7 +1041,7 @@ function renderHome() {
   $app.innerHTML = `
   <div class="view min-h-screen flex flex-col">
     <header class="relative px-5 pt-12 pb-6 bg-ink text-white" style="padding-top:max(3rem,env(safe-area-inset-top))">
-      <div class="absolute right-4" style="top:max(2.75rem,calc(env(safe-area-inset-top) + 0.5rem))">${darkBtn('text-xl')}</div>
+      <div class="absolute right-4" style="top:max(2.75rem,calc(env(safe-area-inset-top) + 0.5rem))">${darkBtn('')}</div>
       <img src="./spark-logo.png" class="h-7 w-auto mb-5" style="filter:brightness(0) invert(1)" onerror="this.style.display='none'" />
       <h1 class="text-2xl font-extrabold leading-tight">Repair Estimator</h1>
       <p class="text-gray-400 text-sm mt-1">Walk the property. Check the repairs. Know the number before you offer.</p>
