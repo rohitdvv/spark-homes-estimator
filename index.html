@@ -374,28 +374,28 @@ function viewEstimate() {
   const room = P.rooms.find(r => r.id === UI.roomId) || P.rooms[0];
   return `
   <div class="view">
-    <!-- room chips -->
-    <div class="noscroll overflow-x-auto flex gap-2 px-4 py-3 bg-[#f1f3f6] sticky top-[0] z-30">
-      ${P.rooms.map(r => {
-        const t = ROOM_TYPES[r.type]; const active = r.id === (room && room.id);
-        const rt = roomTotal(r.id);
-        return `<button data-act="room" data-id="${r.id}"
-          class="press flex-shrink-0 px-3 py-2 rounded-2xl border text-sm font-semibold flex items-center gap-1.5
-          ${active ? 'bg-ink text-white border-ink shadow' : 'bg-white text-gray-600 border-gray-200'}">
-          <span>${t.icon}</span><span>${esc(r.name)}</span>
-          ${rt > 0 ? `<span class="text-[10px] font-bold ${active?'text-spark-200':'text-spark'}">${fmt(rt)}</span>` : ''}
-        </button>`;
-      }).join('')}
-      <button data-act="addroom" class="press flex-shrink-0 px-3 py-2 rounded-2xl border border-dashed border-gray-300 text-gray-500 text-sm font-semibold">+ Room</button>
-    </div>
-
+    <div class="noscroll overflow-x-auto flex gap-2 px-4 py-3 bg-[#f1f3f6] sticky top-[0] z-30">${roomChipsHTML(room)}</div>
     <div class="px-4 pt-3">
       <button data-act="voicewalk" class="press w-full flex items-center justify-center gap-2 py-2.5 rounded-xl bg-ink text-white font-semibold text-sm">
         🎙️ Voice walkthrough <span class="text-[10px] font-bold bg-spark px-1.5 py-0.5 rounded-full">AI</span>
       </button>
     </div>
-
-    ${room ? `
+    <div id="roomBody">${roomBodyHTML(room)}</div>
+  </div>`;
+}
+function roomChipsHTML(room){
+  return P.rooms.map(r => {
+    const t = ROOM_TYPES[r.type]; const active = r.id === (room && room.id); const rt = roomTotal(r.id);
+    return `<button data-act="room" data-id="${r.id}"
+      class="press flex-shrink-0 px-3 py-2 rounded-2xl border text-sm font-semibold flex items-center gap-1.5 ${active ? 'bg-ink text-white border-ink shadow' : 'bg-white text-gray-600 border-gray-200'}">
+      <span>${t.icon}</span><span>${esc(r.name)}</span>
+      ${rt > 0 ? `<span class="text-[10px] font-bold ${active?'text-spark-200':'text-spark'}">${fmt(rt)}</span>` : ''}
+    </button>`;
+  }).join('') + `<button data-act="addroom" class="press flex-shrink-0 px-3 py-2 rounded-2xl border border-dashed border-gray-300 text-gray-500 text-sm font-semibold">+ Room</button>`;
+}
+function roomBodyHTML(room){
+  if (!room) return emptyRooms();
+  return `
       <div class="px-4 pb-4">
         <div class="flex items-center justify-between mb-2 mt-1">
           <h2 class="text-[13px] font-bold text-gray-500 uppercase tracking-wide">${ROOM_TYPES[room.type].icon} ${esc(room.name)}</h2>
@@ -403,23 +403,24 @@ function viewEstimate() {
             ? `<button data-act="delroom" data-id="${room.id}" class="press text-[12px] text-red-500 font-semibold">Remove room</button>` : ''}
         </div>
         ${ROOM_TYPES[room.type].groups.map(g => groupCard(room.id, g)).join('')}
-      </div>` : emptyRooms()}
-  </div>`;
+      </div>`;
 }
 
-/* switch rooms without a full re-render, so the room strip keeps its scroll
-   position (the tapped chip stays put) instead of snapping back to the start */
+/* switch rooms with NO full re-render and NO strip recreation animation:
+   only the chip highlights and the content below change; the strip keeps its
+   exact scroll position so the tapped chip stays put. */
 function selectRoom(id){
-  const main = $app.querySelector('main');
-  const strip = $app.querySelector('.noscroll');
-  const sl = strip ? strip.scrollLeft : 0;
   UI.roomId = id;
-  if (!main){ render(); return; }
-  main.innerHTML = viewEstimate();
+  const room = P.rooms.find(r => r.id === id) || P.rooms[0];
+  const strip = $app.querySelector('.noscroll');
+  const body = document.getElementById('roomBody');
+  if (!strip || !body){ render(); return; }
+  const sl = strip.scrollLeft;
+  strip.innerHTML = roomChipsHTML(room); // refresh highlight + totals
+  strip.scrollLeft = sl;                 // keep position (the tapped chip stays put)
+  body.innerHTML = roomBodyHTML(room);
   bind();
-  const ns = main.querySelector('.noscroll');
-  if (ns) ns.scrollLeft = sl;
-  main.scrollTop = 0;
+  const main = $app.querySelector('main'); if (main) main.scrollTop = 0;
 }
 
 function emptyRooms() {
