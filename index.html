@@ -771,19 +771,19 @@ function firstRoom(type){ return P.rooms.find(r => r.type === type); }
 function agentCoverage(){
   const f = [];
   const pr = progress();
-  if (P.rooms.length === 0) f.push({ sev:'high', msg:'No rooms added yet — add the rooms in this house to begin.' });
+  if (P.rooms.length === 0) f.push({ sev:'high', msg:'No rooms added yet. Add the rooms in this house to begin.' });
   if (pr.total && pr.done < pr.total) f.push({ sev:'med', msg:`${pr.total - pr.done} of ${pr.total} groups still unreviewed. Mark each "No Action Needed" or add items so nothing is skipped.` });
   // big-ticket guard
   const sys = firstRoom('systems');
   if (sys){
     const big = [['hvac','HVAC / furnace'],['electrical','Electrical'],['structural','Structural / foundation'],['plumbing','Plumbing / water heater']];
     const missed = big.filter(([g]) => !groupComplete(sys.id, g)).map(([,l]) => l);
-    if (missed.length) f.push({ sev:'high', msg:`Big-ticket items not yet reviewed: ${missed.join(', ')}. These swing estimates by thousands — never miss them.` });
+    if (missed.length) f.push({ sev:'high', msg:`Big-ticket items not yet reviewed: ${missed.join(', ')}. These swing estimates by thousands. Never miss them.` });
   } else {
-    f.push({ sev:'high', msg:'No "Systems & Structure" room — the hidden costs (HVAC, foundation, rewire) live here. Add it.' });
+    f.push({ sev:'high', msg:'No "Systems & Structure" room. The hidden costs (HVAC, foundation, rewire) live here. Add it.' });
   }
-  if (!(+P.deal.arv) || !(+P.deal.purchase)) f.push({ sev:'low', msg:'Deal inputs incomplete — add ARV and purchase price on the Deal tab for a profit verdict.' });
-  if (f.length === 0) f.push({ sev:'ok', msg:'Full coverage — every group reviewed and big-ticket systems checked. Solid walkthrough.' });
+  if (!(+P.deal.arv) || !(+P.deal.purchase)) f.push({ sev:'low', msg:'Deal inputs incomplete. Add ARV and purchase price on the Deal tab for a profit verdict.' });
+  if (f.length === 0) f.push({ sev:'ok', msg:'Full coverage: every group reviewed and big-ticket systems checked. Solid walkthrough.' });
   return f;
 }
 
@@ -971,6 +971,41 @@ let CHAT = [{ role:'bot', text:'Hi — I\'m your estimate copilot. Ask me about 
 let voiceHintSeen = localStorage.getItem('spark_voicehint') === '1';
 function dismissVoiceHint() { voiceHintSeen = true; localStorage.setItem('spark_voicehint', '1'); }
 
+/* ---- Offline AI pack: download all on-device models while online ---- */
+function offlinePackCard(){
+  const dot = s => s==='ready' ? '<span class="text-green-500 font-bold">●</span>'
+    : s==='loading' ? '<span class="text-amber-500 font-bold animate-pulse">●</span>'
+    : s==='failed' ? '<span class="text-red-400 font-bold">●</span>'
+    : '<span class="text-gray-300 font-bold">●</span>';
+  const rows = [
+    ['Assistant (semantic answers)', SEM.state],
+    ['Voice (offline speech-to-text)', ASR.state],
+    ['Vision (camera scope detect)', VISION.state]
+  ];
+  const allReady = rows.every(([,s]) => s === 'ready');
+  return `
+  <div class="bg-white rounded-2xl p-4 shadow-sm">
+    <div class="flex items-center gap-2 mb-1">
+      <span class="text-lg">📦</span><span class="font-bold text-[15px]">Offline AI</span>
+      <span class="ml-auto text-[10px] font-bold px-2 py-0.5 rounded-full ${allReady?'bg-green-100 text-green-700':'bg-gray-100 text-gray-500'}">${allReady?'ready offline':'download while online'}</span>
+    </div>
+    ${rows.map(([l,s]) => `<div class="flex items-center gap-2 py-1 text-[13px] text-gray-600">${dot(s)}<span class="flex-1">${l}</span><span class="text-[11px] text-gray-400">${s==='ready'?'ready':s==='loading'?'downloading…':s==='failed'?'retry online':'not downloaded'}</span></div>`).join('')}
+    ${allReady ? '' : `<button data-act="aipack" class="press w-full mt-2 py-2.5 rounded-xl bg-ink text-white font-bold text-sm">Download AI pack for offline use</button>
+    <p class="text-[10px] text-gray-400 mt-1.5 leading-snug">One-time download (~90 MB total). After this, voice, chat and camera AI all work with zero signal.</p>`}
+  </div>`;
+}
+async function downloadAIPack(){
+  if (UI.busy) return; UI.busy = true;
+  toast('Downloading AI pack…', 4000);
+  try {
+    await ensureSemantic(); render();
+    await ensureASR(); render();
+    await ensureVision(); render();
+    const ok = SEM.state==='ready' && ASR.state==='ready' && VISION.state==='ready';
+    toast(ok ? 'Offline AI ready ✓' : 'Some models failed. Retry with a better connection.', 4500);
+  } finally { UI.busy = false; render(); }
+}
+
 function viewCopilot(){
   const cov = agentCoverage(), rec = agentRecommend(), ano = agentAnomaly();
   const dot = s => ({high:'bg-red-500',med:'bg-amber-500',low:'bg-blue-400',ok:'bg-green-500'}[s] || 'bg-gray-300');
@@ -994,6 +1029,8 @@ function viewCopilot(){
       <p class="text-[12px] text-gray-400">Specialist agents scan this walkthrough on-device. No network needed.</p>
     </div>
 
+    ${offlinePackCard()}
+
     ${agentCard('🔎','Inspection Coverage','intake + validation', cov)}
 
     <div class="bg-white rounded-2xl p-4 shadow-sm">
@@ -1001,7 +1038,7 @@ function viewCopilot(){
         <span class="text-lg">💡</span><span class="font-bold text-[15px]">Recommendations</span>
         <span class="ml-auto text-[10px] font-bold px-2 py-0.5 rounded-full bg-gray-100 text-gray-500">${rec.length} suggestion${rec.length!==1?'s':''}</span>
       </div>
-      ${rec.length === 0 ? `<p class="text-[13px] text-gray-400 py-1">No suggestions right now — add some repairs and I\'ll spot commonly-paired work.</p>`
+      ${rec.length === 0 ? `<p class="text-[13px] text-gray-400 py-1">No suggestions right now. Add some repairs and I\'ll spot commonly-paired work.</p>`
         : rec.map(r => `<div class="flex items-center gap-2 py-2 border-b border-gray-50 last:border-0">
             <div class="flex-1 min-w-0"><div class="text-[13px] font-semibold">${esc(r.title)} <span class="text-gray-400 font-normal">· ${fmt2(priceOf(r.target.id))}/${esc(itemById(r.target.id).unit)}</span></div>
             <div class="text-[11px] text-gray-400 leading-snug">${esc(r.why)}</div></div>
@@ -1439,6 +1476,7 @@ function handle(e) {
     case 'dismissvoicehint': dismissVoiceHint(); render(); break;
     case 'voicewalk': startVoiceWalk(); break;
     case 'dark': toggleDark(); break;
+    case 'aipack': downloadAIPack(); break;
     case 'compare': modalCompare(); break;
     case 'share': modalShare(); break;
     case 'report': clientReport(); break;
@@ -1860,6 +1898,38 @@ async function processSpeech(raw){
   return results;
 }
 
+/* =========================================================
+   Fully offline speech-to-text: Whisper (tiny.en) on-device via
+   Transformers.js. Used when the browser speech engine is missing
+   or there is no signal, so the voice walkthrough works with zero
+   network. Model is SW-cached after the first download.
+   ========================================================= */
+const ASR = { state:'idle', pipe:null };
+async function ensureASR(){
+  if (ASR.state === 'ready')  return true;
+  if (ASR.state === 'failed') return false;
+  if (ASR.state === 'loading')
+    return new Promise(res => { const t = setInterval(() => { if (ASR.state !== 'loading') { clearInterval(t); res(ASR.state === 'ready'); } }, 200); });
+  ASR.state = 'loading';
+  try {
+    const mod = await import('https://cdn.jsdelivr.net/npm/@xenova/transformers@2.17.2');
+    mod.env.allowLocalModels = false;
+    ASR.pipe = await mod.pipeline('automatic-speech-recognition', 'Xenova/whisper-tiny.en');
+    ASR.state = 'ready';
+    return true;
+  } catch (e) { console.warn('Offline ASR unavailable:', e); ASR.state = 'failed'; return false; }
+}
+async function transcribeBlob(blob){
+  const buf = await blob.arrayBuffer();
+  const Ctx = window.AudioContext || window.webkitAudioContext;
+  const ctx = new Ctx({ sampleRate: 16000 });
+  const audio = await ctx.decodeAudioData(buf);
+  const data = audio.getChannelData(0);
+  try { ctx.close(); } catch(e){}
+  const out = await ASR.pipe(data);
+  return (out && out.text || '').replace(/\[[^\]]*\]|\([^)]*\)/g, ' ').trim();
+}
+
 let _vrec = null;
 function startVoiceWalk(){
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -1932,8 +2002,53 @@ function startVoiceWalk(){
   elSend.onclick = submitText;
   elText.onkeydown = (e) => { if (e.key === 'Enter'){ e.preventDefault(); submitText(); } };
 
+  /* -------- on-device voice (Whisper): tap mic to record, tap to stop -------- */
+  let recording = false, mediaStream = null, mediaRec = null, chunks = [];
+  const stopWhisperRec = () => {
+    recording = false;
+    elMic.classList.remove('animate-pulse'); elMic.style.background = '';
+    try { mediaRec && mediaRec.stop(); } catch(e){}
+  };
+  const startWhisperRec = async () => {
+    try { mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true }); }
+    catch(e){ elStatus.textContent = 'Microphone blocked. Allow it, or type below.'; return; }
+    ensureASR(); // start pulling the model while we record
+    chunks = [];
+    try { mediaRec = new MediaRecorder(mediaStream); }
+    catch(e){ elStatus.textContent = 'Recording not supported here. Type below.'; return; }
+    mediaRec.ondataavailable = (e) => { if (e.data && e.data.size) chunks.push(e.data); };
+    mediaRec.onstop = async () => {
+      try { mediaStream.getTracks().forEach(t => t.stop()); } catch(e){}
+      if (!chunks.length) { elStatus.textContent = 'Nothing recorded. Tap the mic and speak.'; return; }
+      const blob = new Blob(chunks, { type: mediaRec.mimeType || 'audio/webm' });
+      elStatus.textContent = 'Transcribing on-device…';
+      try {
+        if (!(await ensureASR())) { elStatus.textContent = 'Offline voice model not downloaded yet. Get the AI pack in Copilot while online, or type below.'; return; }
+        let text = await transcribeBlob(blob);
+        // whisper hallucinates filler on silence; treat it as "nothing heard"
+        if (/^(you|thank you|thanks.*|bye|\W*)$/i.test(text)) text = '';
+        elInterim.textContent = text ? '“' + text + '”' : '';
+        if (text) await processParts(text);
+        elStatus.textContent = text ? 'Added. Tap the mic to speak again, or type below.' : 'Did not catch that. Try again closer to the mic.';
+      } catch(e){ elStatus.textContent = 'Could not transcribe. Type below instead.'; }
+    };
+    mediaRec.start();
+    recording = true;
+    elMic.classList.add('animate-pulse'); elMic.style.background = '#dc2626';
+    elStatus.textContent = 'Recording… tap the mic to stop';
+  };
+  const enableWhisperMode = (why) => {
+    active = false; if (_vrec){ try { _vrec.stop(); } catch(e){} _vrec = null; }
+    elMic.classList.remove('animate-pulse'); elMic.style.opacity = '1';
+    elRoom.textContent = 'On-device voice (offline)';
+    elStatus.textContent = (why ? why + ' ' : '') + 'Tap the mic, speak, tap again to stop. Or type below.';
+    elMic.onclick = () => recording ? stopWhisperRec() : startWhisperRec();
+  };
+
+  /* -------- live browser speech when it can actually work -------- */
   let active = false;
-  if (SR){
+  const canLive = SR && navigator.onLine !== false;
+  if (canLive){
     active = true;
     const rec = new SR(); _vrec = rec;
     rec.lang = 'en-US'; rec.continuous = true; rec.interimResults = true;
@@ -1947,24 +2062,23 @@ function startVoiceWalk(){
       elInterim.textContent = interim;
     };
     rec.onerror = (ev) => {
-      const msg = (ev.error === 'not-allowed' || ev.error === 'service-not-allowed') ? 'Microphone blocked. Allow it, or just type below.'
-        : ev.error === 'network' ? 'No connection for speech. Type below instead.'
-        : '';
-      if (msg) elStatus.textContent = msg;
+      if (ev.error === 'not-allowed' || ev.error === 'service-not-allowed') elStatus.textContent = 'Microphone blocked. Allow it, or just type below.';
+      else if (ev.error === 'network') enableWhisperMode('No connection for live speech.');
     };
     rec.onend = () => { if (active) { try { rec.start(); } catch(e){} } };
-    try { rec.start(); elStatus.textContent = 'Listening… or type below'; } catch(e){ elStatus.textContent = 'Type the repairs below'; }
+    try { rec.start(); elStatus.textContent = 'Listening… or type below'; } catch(e){ enableWhisperMode(); }
   } else {
-    elStatus.textContent = 'Voice input not supported here — type the repairs below.';
-    elMic.classList.remove('animate-pulse'); elMic.style.opacity = '0.4';
+    enableWhisperMode(SR ? 'You are offline.' : 'Live speech not supported here.');
   }
 
   ov.querySelector('#vwDone').onclick = () => {
     active = false; if (_vrec){ try { _vrec.stop(); } catch(e){} _vrec = null; }
+    if (recording) stopWhisperRec();
+    try { mediaStream && mediaStream.getTracks().forEach(t => t.stop()); } catch(e){}
     const added = feed.filter(f => f.matched);
     if (added.length){ UI.tab = 'estimate'; UI.roomId = added[0].roomId; }
     ov.remove(); render();
-    toast(added.length ? added.length + ' item' + (added.length!==1?'s':'') + ' added — check the estimate' : 'Voice walkthrough ended');
+    toast(added.length ? added.length + ' item' + (added.length!==1?'s':'') + ' added. Check the estimate.' : 'Voice walkthrough ended');
   };
 }
 
