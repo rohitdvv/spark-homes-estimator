@@ -1559,18 +1559,27 @@ function voiceInput(targetId) {
   if (!SR) { toast('Voice input isn\'t supported in this browser — try Chrome, or just type.', 4500); return; }
   if (_rec) { try { _rec.stop(); } catch (e) {} _rec = null; return; } // tap again while listening → stop
   const rec = new SR(); _rec = rec;
-  rec.lang = 'en-US'; rec.interimResults = false; rec.maxAlternatives = 1;
+  rec.lang = 'en-US'; rec.interimResults = true; rec.maxAlternatives = 1;
   const btn = targetId === 'chatin'
     ? document.querySelector('[data-act="chatmic"]')
     : document.querySelector('[data-act="capmic"][data-id="' + targetId.slice(4) + '"]');
   const listening = on => { if (btn) { btn.classList.toggle('bg-gray-100', !on); btn.classList.toggle('bg-red-500', on); btn.classList.toggle('animate-pulse', on); } };
+  const base = (document.getElementById(targetId) || {}).value || '';
   rec.onstart = () => { listening(true); dismissVoiceHint(); toast('Listening… speak now', 3000); };
   rec.onresult = (e) => {
-    const txt = e.results[0][0].transcript;
-    const el = document.getElementById(targetId);
-    if (el) { el.value = (el.value ? el.value + ' ' : '') + txt; el.focus(); }
-    if (targetId === 'chatin') sendChat();
-    else if (targetId.startsWith('cap_')) { setCaption(targetId.slice(4), el.value); toast('Caption: ' + txt); }
+    // stream words into the field live so the user SEES what is heard
+    let interim = '', finalTxt = '';
+    for (let i = 0; i < e.results.length; i++){
+      const r = e.results[i];
+      if (r.isFinal) finalTxt += r[0].transcript; else interim += r[0].transcript;
+    }
+    const el = document.getElementById(targetId); if (!el) return;
+    el.value = (base ? base + ' ' : '') + (finalTxt + interim).trim();
+    el.focus();
+    if (finalTxt && !interim){
+      if (targetId === 'chatin') sendChat();
+      else if (targetId.startsWith('cap_')) { setCaption(targetId.slice(4), el.value); toast('Caption: ' + el.value); }
+    }
   };
   rec.onerror = (e) => {
     const msg = {
@@ -1856,7 +1865,7 @@ async function ensureVoiceIndex(){
 }
 /* parse one spoken phrase -> add a line item (or report no match) */
 const ROOM_WORDS = /\b(kitchen|bathroom|bath|powder|shower|restroom|bedroom|master|guest|living|family|den|common|dining|lounge|exterior|outside|outdoor|yard|garage|interior|hallway|hall|foyer|entry|room)\b/g;
-const STOP = new Set('the a an and or is are it its on in at of to for with new old need needs needed replace replaced install installed add put get got this that here there look looks looking bad broken damage damaged damages fix some please all both also then they we want some'.split(' '));
+const STOP = new Set('the a an and or is are it its on in at of to for with new old need needs needed replace replaced install installed add put get got this that here there look looks looking bad broken damage damaged damages fix some please all both also then they we want one two three four five six seven eight nine ten'.split(' '));
 /* spoken-word -> item-name token, for terms that differ from the catalog wording */
 const SYNONYMS = { ac:'condensing', air:'condensing', conditioner:'condensing', condenser:'condensing',
   fridge:'fridge', refrigerator:'fridge', stove:'range', oven:'oven', microwave:'microwave', hood:'hood',
@@ -1868,7 +1877,7 @@ function matchItemFromText(t){
   const words = (t.toLowerCase().match(/[a-z]+/g) || []).filter(w => w.length > 2 && !STOP.has(w));
   if (!words.length) return null;
   const ws = new Set(words);
-  words.forEach(w => { if (SYNONYMS[w]) ws.add(SYNONYMS[w]); });
+  words.forEach(w => { const s = w.replace(/s$/, ''); [SYNONYMS[w], s, SYNONYMS[s]].forEach(x => { if (x) ws.add(x); }); });
   let best = null;
   catalog().forEach(it => {
     // ignore parenthetical qualifiers like "(needed if no window)" so they don't false-match
@@ -1915,31 +1924,52 @@ async function processVoicePhrase(text){
 function extractItems(t){
   const cleaned = t.toLowerCase().replace(ROOM_WORDS, ' '); // room words are context, not items
   const words = (cleaned.match(/[a-z]+/g) || []).filter(w => w.length > 2 && !STOP.has(w));
-  const expanded = new Set(); words.forEach(w => { expanded.add(w); if (SYNONYMS[w]) expanded.add(SYNONYMS[w]); });
-  const out = [], used = new Set();
-  expanded.forEach(w => {
+  const findBest = (w) => {
     let best = null;
     catalog().forEach(it => {
       const toks = (it.name.toLowerCase().replace(/\([^)]*\)/g, ' ').match(/[a-z]+/g) || []).filter(x => x.length > 2 && !STOP.has(x));
       const idx = toks.indexOf(w);
       if (idx >= 0){ const score = (idx === 0 ? 2 : 1) + 1 / Math.max(toks.length, 1); if (!best || score > best.score) best = { score, id: it.id }; }
     });
+    return best;
+  };
+  const out = [], used = new Set();
+  // one candidate chain per ORIGINAL word (word -> synonym -> singular -> its
+  // synonym), so plurals match and a word can't add two near-duplicate items
+  for (const w0 of words){
+    const sing = w0.replace(/s$/, '');
+    const cands = [...new Set([w0, SYNONYMS[w0], sing, SYNONYMS[sing]].filter(Boolean))];
+    let best = null;
+    for (const c of cands){ best = findBest(c); if (best) break; }
     if (best && !used.has(best.id)){ used.add(best.id); out.push(best.id); }
-  });
+  }
   return out;
 }
 async function processSpeech(raw){
   const t = (raw || '').toLowerCase().trim(); if (!t) return [];
-  const mentioned = detectRoomType(t); if (mentioned) VOICE.room = mentioned;
   const results = [];
-  for (const id of extractItems(t)){
-    const group = groupOf(id); if (!group) continue;
-    let roomType = VOICE.room || GROUP_ROOMTYPE[group];
-    if (!ROOM_TYPES[roomType] || !ROOM_TYPES[roomType].groups.includes(group)) roomType = GROUP_ROOMTYPE[group];
-    const room = addLineToRoomType(id, roomType, group, 1);
-    if (room) results.push({ matched: true, id, group, roomId: room.id, name: itemById(id) ? itemById(id).name : id, room: room.name, qty: 1, phrase: raw });
+  let anyRoom = false;
+  // split the utterance into phrases so each carries its own quantity:
+  // "five exterior doors and two toilets" -> ["five exterior doors", "two toilets"]
+  const parts = t.split(/,|\band\b|\bthen\b|\balso\b|\bplus\b/i).map(s => s.trim()).filter(Boolean);
+  for (const part of parts){
+    const mentioned = detectRoomType(part); if (mentioned){ VOICE.room = mentioned; anyRoom = true; }
+    const qty = parseQty(part);
+    // prefer a strong multi-word match ("front entry door" -> that exact item);
+    // fall back to per-word extraction for lists inside one phrase
+    let ids;
+    const kw = matchItemFromText(part);
+    if (kw && kw.hits >= 2) ids = [kw.id];
+    else ids = extractItems(part);
+    for (const id of ids){
+      const group = groupOf(id); if (!group) continue;
+      let roomType = VOICE.room || GROUP_ROOMTYPE[group];
+      if (!ROOM_TYPES[roomType] || !ROOM_TYPES[roomType].groups.includes(group)) roomType = GROUP_ROOMTYPE[group];
+      const room = addLineToRoomType(id, roomType, group, qty);
+      if (room) results.push({ matched: true, id, group, roomId: room.id, name: itemById(id) ? itemById(id).name : id, room: room.name, qty, phrase: part });
+    }
   }
-  if (!results.length && !mentioned) results.push({ matched: false, phrase: raw });
+  if (!results.length && !anyRoom) results.push({ matched: false, phrase: raw });
   return results;
 }
 
