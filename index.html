@@ -1179,18 +1179,63 @@ function modalAddRoom() {
 }
 
 /* ---- New estimate: name the walkthrough by the property address ---- */
+/* real addresses via OpenStreetMap (Photon API, no key). Best effort:
+   offline or blocked -> silent, manual typing still works. */
+function fmtOSM(p){
+  return [ [p.housenumber, p.street || p.name].filter(Boolean).join(' '),
+           p.city || p.town || p.village || p.county, p.state, p.postcode ]
+    .filter(Boolean).join(', ');
+}
 function modalNewEstimate() {
   modal(`<div class="px-5 pb-8 pt-2">
     <h3 class="font-bold text-lg mb-1">New estimate</h3>
     <p class="text-[12px] text-gray-400 mb-3">Name this walkthrough by the property address.</p>
-    <input id="newAddr" placeholder="e.g. 1423 Oak St, Dallas TX" autocomplete="off" enterkeyhint="go"
-      class="w-full px-3 py-3 rounded-xl border border-gray-200 font-semibold outline-none focus:border-spark mb-3" />
+    <input id="newAddr" placeholder="Start typing the address…" autocomplete="off" enterkeyhint="go"
+      class="w-full px-3 py-3 rounded-xl border border-gray-200 font-semibold outline-none focus:border-spark mb-2" />
+    <div id="addrSugg" class="text-left mb-2 space-y-1"></div>
+    <button id="addrLoc" class="press w-full py-2.5 mb-3 border border-gray-200 rounded-xl font-semibold text-gray-600 text-sm">📍 Use my current location</button>
     <button data-m="createest" class="press w-full py-3 bg-spark text-white rounded-xl font-bold">Start walkthrough</button>
-    <button data-m="createskip" class="press w-full mt-2 py-2.5 text-gray-400 font-semibold">Skip — I'll name it later</button>
+    <button data-m="createskip" class="press w-full mt-2 py-2.5 text-gray-400 font-semibold">Skip, I'll name it later</button>
   </div>`);
   setTimeout(() => {
-    const el = document.getElementById('newAddr');
-    if (el) { el.focus(); el.addEventListener('keydown', ev => { if (ev.key === 'Enter') { ev.preventDefault(); createEstimate(el.value); } }); }
+    const el = document.getElementById('newAddr'), sugg = document.getElementById('addrSugg');
+    if (!el) return;
+    el.focus();
+    el.addEventListener('keydown', ev => { if (ev.key === 'Enter') { ev.preventDefault(); createEstimate(el.value); } });
+    // live suggestions of real addresses while typing (debounced)
+    let t, seq = 0;
+    el.addEventListener('input', () => {
+      clearTimeout(t);
+      const q = el.value.trim();
+      if (q.length < 4){ sugg.innerHTML = ''; return; }
+      t = setTimeout(async () => {
+        const my = ++seq;
+        try {
+          const r = await fetch('https://photon.komoot.io/api/?q=' + encodeURIComponent(q) + '&limit=5&lang=en');
+          const j = await r.json();
+          if (my !== seq) return; // stale response
+          const seen = new Set();
+          const items = (j.features || []).map(f => fmtOSM(f.properties)).filter(a => a && a.length > 8 && !seen.has(a) && seen.add(a)).slice(0, 4);
+          sugg.innerHTML = items.map(a => `<button data-addr="${esc(a)}" class="press w-full text-left text-[13px] px-3 py-2 rounded-lg bg-gray-50 border border-gray-100">📍 ${esc(a)}</button>`).join('');
+          sugg.querySelectorAll('[data-addr]').forEach(b => b.onclick = () => { el.value = b.dataset.addr; sugg.innerHTML = ''; });
+        } catch(e){ sugg.innerHTML = ''; } // offline: type it manually
+      }, 350);
+    });
+    // GPS -> reverse geocode: the agent is standing at the property
+    document.getElementById('addrLoc').onclick = () => {
+      if (!navigator.geolocation){ toast('Location not available on this device'); return; }
+      toast('Getting your location…');
+      navigator.geolocation.getCurrentPosition(async pos => {
+        try {
+          const r = await fetch(`https://photon.komoot.io/reverse?lat=${pos.coords.latitude}&lon=${pos.coords.longitude}`);
+          const j = await r.json();
+          const a = j.features && j.features[0] && fmtOSM(j.features[0].properties);
+          if (a){ el.value = a; sugg.innerHTML = ''; toast('Address found ✓'); }
+          else toast('No address found at this spot. Type it in.');
+        } catch(e){ toast('Address lookup needs a connection. Type it in.', 4000); }
+      }, err => toast(err.code === 1 ? 'Location permission denied. Allow it and retry.' : 'Could not get your location.', 4500),
+      { enableHighAccuracy: true, timeout: 10000 });
+    };
   }, 120);
 }
 function createEstimate(addr) {
