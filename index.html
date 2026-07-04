@@ -211,7 +211,9 @@ const LS = {
 const j = (k, fb) => { try { return JSON.parse(localStorage.getItem(k)) ?? fb; } catch { return fb; } };
 const setLS = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); return true; } catch { return false; } };
 
-const APP_VERSION = 'v26';
+const APP_VERSION = 'v27';
+let AGENT = j('spark_agent_v1', '');
+function setAgent(n){ AGENT = (n || '').trim(); setLS('spark_agent_v1', AGENT); }
 
 /* ---- PIN lock: SHA-256 hashed PIN + one-time recovery code ---- */
 let LOCK = j('spark_lock_v1', null); // { pinHash, recHash }
@@ -388,8 +390,10 @@ function render() {
 function header(pr) {
   return `
   <header class="sticky top-0 z-40 bg-white/95 backdrop-blur border-b border-gray-200" style="padding-top:env(safe-area-inset-top)">
-    <div class="px-4 pt-3 pb-2 flex items-center gap-3">
-      <img src="./spark-logo.png" alt="Spark" class="h-5 w-auto" />
+    <div class="px-4 pt-3 pb-2 flex items-center gap-2">
+      <button data-act="gohome" class="press -ml-1 text-gray-500" aria-label="Back to all estimates" title="All estimates">
+        <svg width="26" height="26" viewBox="0 0 24 24" fill="none"><path d="M15 18l-6-6 6-6" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
       <div class="flex-1 min-w-0">
         <button data-act="projects" class="press flex items-center gap-1 max-w-full">
           <span class="font-bold text-[15px] truncate">${esc(P.name)}</span>
@@ -901,9 +905,36 @@ function computedAnswer(qRaw){
   const q = qRaw.toLowerCase().trim();
   const pr = progress();
 
-  // greetings / pleasantries - don't let these fall through to a canned scan
-  if (/^(hi|hey+|hello|yo|sup|howdy|good (morning|afternoon|evening))\b/.test(q) || /^(thanks|thank you|ty|thx|cool|nice|ok|okay)\b/.test(q))
-    return 'Hey! Ask me about the running total, your biggest cost, what\'s left to review, the deal math, or any repair area - HVAC, roof, foundation, electrical, kitchen, bath, flooring, exterior.';
+  // greetings / small talk - be friendly, then point to what I can do
+  if (/\b(hi+|hey+|hello+|yo|sup|howdy|hola|namaste|good (morning|afternoon|evening))\b/.test(q) || /\bmy name is\b|\bi am \b|\bi'm \b/.test(q))
+    return 'Hi there! I\'m your on-device estimate copilot. Ask me things like: "how much is the kitchen", "what\'s the total", "biggest cost", "how many items in the bathroom", "which room costs the most", "what am I missing", "is this a good deal", or about any repair area (HVAC, roof, foundation, electrical).';
+  if (/^(thanks|thank you|ty|thx|cool|nice|great|awesome|ok|okay|got it)\b/.test(q))
+    return 'Anytime. Ask me anything else about this estimate or the deal.';
+  if (/who are you|what are you|are you (a )?(bot|ai|human|real)/.test(q))
+    return 'I\'m the Spark estimate copilot - a small AI that runs entirely on your phone, no internet. I read your live walkthrough and answer questions about scope, costs, and the deal.';
+  if (/what can (i|you)|help|how do (i|you)|what should i ask|commands|examples/.test(q))
+    return 'Try: "what\'s the total", "how much is the kitchen", "biggest cost", "which room is most expensive", "how many items in the bedroom", "what am I missing", "is this a good deal", "what\'s the max offer", or ask about HVAC, roof, foundation, electrical, tile, or flooring.';
+
+  // per-room cost: "how much is the kitchen", "cost of the bathroom"
+  if (/how much.*(kitchen|bath|bedroom|living|exterior|interior|systems|room)|cost (of|for) the|(kitchen|bathroom|bedroom|living|exterior).*(cost|total)/.test(q)){
+    const rt = detectRoomType(q);
+    if (rt){
+      const rms = P.rooms.filter(r => r.type === rt);
+      if (!rms.length) return `There's no ${ROOM_TYPES[rt].label} in this estimate yet.`;
+      return rms.map(r => `${r.name}: ${fmt(roomTotal(r.id))}`).join(', ') + '.';
+    }
+  }
+  // which room is most / least expensive
+  if (/which room|most expensive room|priciest room|room.*(most|cost the most)|cheapest room/.test(q)){
+    const ranked = P.rooms.map(r => ({ name: r.name, t: roomTotal(r.id) })).filter(x => x.t > 0).sort((a,b)=>b.t-a.t);
+    if (!ranked.length) return 'Nothing is selected yet, so no room has a cost.';
+    const cheap = /cheap|least/.test(q);
+    const pick = cheap ? ranked[ranked.length-1] : ranked[0];
+    return `The ${cheap?'cheapest':'most expensive'} room is ${pick.name} at ${fmt(pick.t)}. Full ranking: ${ranked.map(x=>`${x.name} ${fmt(x.t)}`).join(', ')}.`;
+  }
+  // how many rooms
+  if (/how many rooms|number of rooms/.test(q))
+    return `This estimate has ${P.rooms.length} rooms: ${P.rooms.map(r=>r.name).join(', ')}.`;
 
   // running total / cost so far
   if (/\btotal\b|how much|cost so far|running (estimate|total)|what.?s the (estimate|total)/.test(q))
@@ -963,7 +994,7 @@ function keywordKB(qRaw){
   });
   return best ? best.a : null;
 }
-const COPILOT_FALLBACK = 'I don\'t have a confident answer for that - I\'m an offline assistant focused on this walkthrough. I can help with the running total, your biggest cost, what\'s left to review, the deal/profit math, or a repair area like HVAC, roof, foundation, electrical, kitchen, bath, flooring, or exterior.';
+const COPILOT_FALLBACK = 'I\'m not sure about that one - I\'m an offline assistant focused on this estimate. Things I can answer: "what\'s the total", "how much is the kitchen", "biggest cost", "which room is most expensive", "how many items in the bathroom", "how many rooms", "what am I missing", "is this a good deal", "what\'s the max offer", or ask about HVAC, roof, foundation, electrical, tile, flooring.';
 
 /* ---- offline semantic engine - Transformers.js + all-MiniLM-L6-v2 (lazy) ----
    Upgrades KB retrieval from keyword overlap to on-device sentence embeddings,
@@ -1129,7 +1160,7 @@ function viewCopilot(){
         <button data-act="chatsend" class="press px-4 rounded-xl bg-ink text-white font-semibold text-sm">Send</button>
       </div>
       <div class="px-3 pb-3 flex gap-1.5 flex-wrap">
-        ${['What am I missing?','Biggest cost?','What\'s the profit?'].map(s => `<button data-act="chip" data-q="${esc(s)}" class="press text-[11px] bg-gray-100 text-gray-500 px-2.5 py-1 rounded-full font-medium">${esc(s)}</button>`).join('')}
+        ${['What\'s the total?','How much is the kitchen?','Biggest cost?','Which room is most expensive?','How many items so far?','What am I missing?','Is this a good deal?','What can I ask?'].map(s => `<button data-act="chip" data-q="${esc(s)}" class="press text-[11px] bg-gray-100 text-gray-500 px-2.5 py-1 rounded-full font-medium">${esc(s)}</button>`).join('')}
       </div>
       ${voiceHintSeen ? '' : `<div class="px-3 pb-3 -mt-1">
         <div class="flex items-start gap-2 text-[11px] text-gray-500 bg-gray-50 rounded-lg px-2.5 py-1.5">
@@ -1301,6 +1332,9 @@ function renderLock(){
 function modalSettings(){
   modal(`<div class="px-5 pb-8 pt-2">
     <h3 class="font-bold text-lg mb-3">Settings</h3>
+    <div class="text-[12px] font-semibold text-gray-400 uppercase mb-1">Agent</div>
+    <p class="text-[12px] text-gray-500 mb-2">Your name is stamped on every exported report and Excel, so the office knows who inspected the property.</p>
+    <input id="stAgent" value="${esc(AGENT)}" placeholder="e.g. Jordan Blake" class="w-full px-3 py-2.5 rounded-xl border border-gray-200 font-semibold outline-none focus:border-spark mb-3" />
     <div class="bg-gray-50 rounded-xl p-3 mb-3 flex justify-between text-sm">
       <span class="text-gray-500">App version</span><span class="font-bold">${APP_VERSION} · offline PWA</span>
     </div>
@@ -1323,6 +1357,8 @@ function modalSettings(){
     <button id="stWipe" class="press w-full py-2.5 border border-red-200 text-red-500 rounded-xl font-semibold text-sm">Erase all app data</button>
   </div>`);
   setTimeout(() => {
+    const ag = document.getElementById('stAgent');
+    if (ag) ag.addEventListener('input', () => setAgent(ag.value));
     const set = document.getElementById('stSetLock');
     if (set) set.onclick = async () => {
       const v = (document.getElementById('stPin').value || '').trim();
@@ -1562,7 +1598,8 @@ function clientReport(){
       <div class="kv"><span>Rooms</span><b>${P.rooms.length}</b></div>
       <div class="kv"><span>Groups reviewed</span><b>${pr.done}/${pr.total}</b></div>
       <div class="kv"><span>Photos</span><b>${P.photos.length}</b></div>
-      <div class="kv"><span>Repair total</span><b>${fmt(repairs)}</b></div></div>
+      <div class="kv"><span>Repair total</span><b>${fmt(repairs)}</b></div>
+      <div class="kv"><span>Inspected by</span><b>${esc(AGENT || 'Unassigned')}</b></div></div>
     <div class="card"><h2>Cost by section</h2>
       ${secRows.map(([s,v])=>`<div class="secrow"><div class="lab"><span>${esc(s)}</span><span>${fmt(v)}</span></div><div class="bar" style="width:${Math.max(6,v/maxSec*100)}%"></div></div>`).join('')||'<div style="font-size:12px;color:#94a3b8">Nothing selected.</div>'}</div>
   </div>
@@ -1570,7 +1607,7 @@ function clientReport(){
   ${roomBlocks||'<div style="font-size:13px;color:#94a3b8">No items selected yet.</div>'}
   ${photos?`<h2 class="sec">Photos</h2>${photos}`:''}
   <div class="noprint"><button onclick="window.print()">Print / Save as PDF</button></div>
-  <div class="foot">Generated by Spark Homes Repair Estimator &middot; ${new Date().toLocaleString()}</div>
+  <div class="foot">${AGENT ? 'Inspected by ' + esc(AGENT) + ' &middot; ' : ''}Generated by Spark Homes Repair Estimator &middot; ${new Date().toLocaleString()}</div>
   </body></html>`;
   const ov=document.createElement('div');
   ov.id='reportOverlay';
@@ -1737,6 +1774,7 @@ function handle(e) {
     case 'aipack': downloadAIPack(); break;
     case 'settings': modalSettings(); break;
     case 'demo': loadDemo(); break;
+    case 'gohome': P = null; setLS(LS.current, ''); render(); break;
     case 'compare': modalCompare(); break;
     case 'share': modalShare(); break;
     case 'report': clientReport(); break;
@@ -2517,6 +2555,7 @@ async function doExport() {
       ['SPARK EQUITY GROUP - REPAIR ESTIMATE'],
       ['Project', P.name],
       ['Address', P.address || '-'],
+      ['Inspected by', AGENT || 'Unassigned'],
       ['Date', new Date().toLocaleString()],
       [],
       ['Room', 'Section', 'Group', 'Item', 'Qty', 'Unit', 'Unit Cost', 'Line Total']
@@ -2613,6 +2652,18 @@ function boot() {
   render();
 }
 boot();
+
+// Device / browser back button: navigate WITHIN the app instead of closing it.
+history.pushState({ spark: 1 }, '');
+let _backExit = false;
+window.addEventListener('popstate', () => {
+  const ov = document.getElementById('voiceWalk') || document.getElementById('reportOverlay') || document.getElementById('liveOverlay');
+  if (ov){ (ov.id === 'liveOverlay' && typeof stopLive === 'function') ? stopLive() : ov.remove(); history.pushState({spark:1}, ''); return; }
+  if (typeof $modal !== 'undefined' && $modal && !$modal.classList.contains('hidden')){ closeModal(); history.pushState({spark:1}, ''); return; }
+  if (P){ P = null; setLS(LS.current, ''); render(); history.pushState({spark:1}, ''); return; }
+  // already on the home screen: require a second back within 2s to exit
+  if (!_backExit){ _backExit = true; history.pushState({spark:1}, ''); toast('Press back again to exit'); setTimeout(() => _backExit = false, 2000); return; }
+});
 
 if ('serviceWorker' in navigator) {
   let _refreshed = false;
