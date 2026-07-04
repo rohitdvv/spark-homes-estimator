@@ -211,7 +211,7 @@ const LS = {
 const j = (k, fb) => { try { return JSON.parse(localStorage.getItem(k)) ?? fb; } catch { return fb; } };
 const setLS = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); return true; } catch { return false; } };
 
-const APP_VERSION = 'v27';
+const APP_VERSION = 'v28';
 let AGENT = j('spark_agent_v1', '');
 function setAgent(n){ AGENT = (n || '').trim(); setLS('spark_agent_v1', AGENT); }
 
@@ -1195,41 +1195,77 @@ function bottomNav() {
 /* =====================================================================
    9. HOME (project list)
    ===================================================================== */
+function projectStat(p){
+  const sP = P; P = p;
+  const rep = grandTotal(), pr = progress();
+  const d = p.deal, arv=+d.arv||0, pur=+d.purchase||0, hold=(+d.weeks||0)*(+d.perWeek||0), sell=arv*((+d.sellPct||0)/100);
+  const tc=pur+rep+hold+sell, profit=arv-tc, roi=tc>0?profit/tc*100:0, hasDeal=!!(arv&&pur);
+  let verdict=null, vc='';
+  if (hasDeal){ if (profit>=25000&&roi>=15){verdict='GO';vc='bg-green-100 text-green-700';} else if (profit>0){verdict='CAUTION';vc='bg-amber-100 text-amber-700';} else {verdict='NO-GO';vc='bg-red-100 text-red-700';} }
+  P = sP;
+  return { p, rep, pr, verdict, vc, pct: pr.total ? Math.round(pr.done/pr.total*100) : 0 };
+}
 function renderHome() {
+  const hr = new Date().getHours();
+  const greet = hr < 12 ? 'Good morning' : hr < 18 ? 'Good afternoon' : 'Good evening';
+  const who = AGENT ? ', ' + esc(AGENT.split(' ')[0]) : '';
+  const stats = projects.map(projectStat);
+  const pipeline = stats.reduce((s,x)=>s+x.rep,0);
+  const goCount = stats.filter(x=>x.verdict==='GO').length;
+  const tile = (l,v) => `<div class="rounded-2xl px-2 py-3 text-center" style="background:rgba(255,255,255,.09);backdrop-filter:blur(8px);border:1px solid rgba(255,255,255,.08)">
+    <div class="text-[19px] font-extrabold leading-none">${v}</div>
+    <div class="text-[9.5px] text-white/55 font-bold uppercase tracking-wide mt-1">${l}</div></div>`;
   $app.innerHTML = `
-  <div class="view min-h-screen flex flex-col">
-    <header class="relative px-5 pt-12 pb-6 bg-ink text-white" style="padding-top:max(3rem,env(safe-area-inset-top))">
-      <div class="absolute right-4" style="top:max(2.75rem,calc(env(safe-area-inset-top) + 0.5rem))">${darkBtn('')}</div>
-      <img src="./spark-logo.png" class="h-7 w-auto mb-5" style="filter:brightness(0) invert(1)" onerror="this.style.display='none'" />
-      <h1 class="text-2xl font-extrabold leading-tight">Repair Estimator</h1>
-      <p class="text-gray-400 text-sm mt-1">Walk the property. Check the repairs. Know the number before you offer.</p>
+  <div class="view min-h-screen flex flex-col bg-[#f1f3f6]">
+    <header class="px-5 pb-14 text-white" style="padding-top:max(3.25rem,calc(env(safe-area-inset-top) + 1rem));background:linear-gradient(155deg,#233350 0%,#0b1220 92%)">
+      <div class="flex items-center justify-between mb-5">
+        <img src="./spark-logo.png" class="h-6 w-auto" style="filter:brightness(0) invert(1)" onerror="this.style.display='none'" />
+        <div class="flex items-center gap-4">${darkBtn('')}<button data-act="settings" class="press text-white/80 text-xl" aria-label="Settings">⚙</button></div>
+      </div>
+      <h1 class="text-[26px] font-extrabold leading-tight">${greet}${who}</h1>
+      <p class="text-white/50 text-[13px] mt-0.5">${projects.length ? 'Your acquisition pipeline at a glance.' : 'Walk a property. Know the number before you offer.'}</p>
+      <div class="grid grid-cols-3 gap-2.5 mt-5" style="margin-bottom:-3.25rem">
+        ${tile('Properties', projects.length)}${tile('Repair value', fmtK(pipeline))}${tile('GO deals', goCount)}
+      </div>
     </header>
-    <div class="flex-1 px-4 py-5 -mt-3 bg-[#f1f3f6] rounded-t-3xl">
-      <button data-act="new" class="press w-full py-4 mb-2.5 bg-spark text-white rounded-2xl font-bold text-lg shadow-lg shadow-spark/30">+ New Estimate</button>
-      <button data-act="demo" class="press w-full py-3 mb-5 border-2 border-dashed border-spark-300 text-spark-700 rounded-2xl font-bold">✨ Load demo property (see it in action)</button>
-      ${projects.length === 0 ? `<p class="text-center text-gray-400 text-sm py-8">No saved estimates yet.<br/>Start a walkthrough, or tap the demo above.</p>` : `
-        <div class="flex items-center justify-between mb-2">
-          <div class="text-[12px] font-semibold text-gray-400 uppercase">Saved estimates (${projects.length})</div>
+
+    <div class="flex-1 px-4 pt-16 pb-6">
+      <button data-act="new" class="press w-full py-4 mb-2.5 bg-spark text-white rounded-2xl font-bold text-lg shadow-lg shadow-spark/30 flex items-center justify-center gap-2">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none"><path d="M12 5v14M5 12h14" stroke="white" stroke-width="2.6" stroke-linecap="round"/></svg>New Estimate
+      </button>
+      <button data-act="demo" class="press w-full py-3 mb-6 border-2 border-dashed border-spark-300 text-spark-700 rounded-2xl font-bold">✨ Load demo property</button>
+      ${projects.length === 0 ? `
+        <div class="text-center py-8">
+          <div class="text-5xl mb-3">🏠</div>
+          <p class="font-bold text-gray-600">No estimates yet</p>
+          <p class="text-gray-400 text-sm mt-1">Start a walkthrough, or tap the demo to explore every feature.</p>
+        </div>` : `
+        <div class="flex items-center justify-between mb-2.5">
+          <div class="text-[12px] font-bold text-gray-400 uppercase tracking-wide">Estimates (${projects.length})</div>
           ${projects.length > 1 ? `<button data-act="compare" class="press text-[12px] font-bold text-spark">⚖ Compare</button>` : ''}
         </div>
         <div class="space-y-2.5">
-          ${projects.map(p => {
-            const sP = P; P = p; const tot = grandTotal(); const pr = progress(); P = sP;
-            return `<div class="bg-white rounded-2xl p-4 shadow-sm flex items-center gap-3">
-              <button data-act="open" data-id="${p.id}" class="press flex-1 text-left min-w-0">
-                <div class="font-bold truncate">${esc(p.name)}</div>
-                <div class="text-[12px] text-gray-400">${pr.done}/${pr.total} groups · ${new Date(p.savedAt).toLocaleDateString()}</div>
-              </button>
-              <div class="text-right flex-shrink-0">
-                <div class="font-extrabold text-spark">${fmt(tot)}</div>
-                <button data-act="delproj" data-id="${p.id}" class="text-[11px] text-gray-300 font-semibold">delete</button>
+          ${stats.map(({p, rep, pr, verdict, vc, pct}) => `
+            <div class="bg-white rounded-2xl p-4 shadow-sm pop">
+              <div class="flex items-start gap-3">
+                <button data-act="open" data-id="${p.id}" class="press flex-1 text-left min-w-0">
+                  <div class="flex items-center gap-2 mb-0.5">
+                    ${verdict ? `<span class="text-[9px] font-extrabold px-1.5 py-0.5 rounded ${vc}">${verdict}</span>` : ''}
+                    <div class="font-bold truncate">${esc(p.name)}</div>
+                  </div>
+                  <div class="text-[11px] text-gray-400">${new Date(p.savedAt).toLocaleDateString()} · ${pr.done}/${pr.total} groups reviewed</div>
+                </button>
+                <div class="text-right flex-shrink-0">
+                  <div class="font-extrabold text-spark text-lg leading-none">${fmt(rep)}</div>
+                  <button data-act="delproj" data-id="${p.id}" class="text-[11px] text-gray-300 font-semibold mt-1">delete</button>
+                </div>
               </div>
-            </div>`;
-          }).join('')}
+              <div class="h-1.5 rounded-full bg-gray-100 mt-3 overflow-hidden"><div class="pfill h-full bg-gradient-to-r from-spark-500 to-spark" style="width:${pct}%"></div></div>
+            </div>`).join('')}
         </div>`}
-      <div class="mt-6 text-center space-x-4">
-        <button data-act="globalprice" class="text-[12px] text-gray-400 font-semibold underline">Manage standard pricing</button>
-        <button data-act="settings" class="text-[12px] text-gray-400 font-semibold underline">⚙ Settings</button>
+      <div class="mt-7 text-center space-x-5">
+        <button data-act="globalprice" class="text-[12px] text-gray-400 font-semibold underline">Standard pricing</button>
+        <button data-act="settings" class="text-[12px] text-gray-400 font-semibold underline">Settings</button>
       </div>
       <div class="mt-3 text-center text-[10px] text-gray-300">Spark Estimator ${APP_VERSION}${LOCK ? ' · 🔒 locked' : ''}</div>
     </div>
