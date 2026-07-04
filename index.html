@@ -95,6 +95,30 @@
   html.theme-anim *:not(.themesw):not(.knob) {
     transition: background-color .4s ease, color .4s ease, border-color .4s ease, fill .4s ease !important;
   }
+  /* dark-mode readability fixes */
+  :root { --ink-txt:#0f172a; }
+  html.dark { --ink-txt:#e2e8f0; }
+  html.dark .bg-green-100 { background:#0f2b1c !important; }
+  html.dark .text-green-700 { color:#4ade80 !important; }
+  html.dark .bg-amber-100 { background:#332312 !important; }
+  html.dark .text-amber-700 { color:#fbbf24 !important; }
+  html.dark .bg-red-100, html.dark .bg-red-50 { background:#331416 !important; }
+  html.dark .text-red-700 { color:#f87171 !important; }
+  html.dark .text-spark-700 { color:#ff9e6d !important; }
+  html.dark .text-green-600 { color:#4ade80 !important; }
+  html.dark .text-amber-600 { color:#fbbf24 !important; }
+  /* bottom nav: pill behind active tabs + raised Copilot button */
+  .navpill { padding:3px 14px; border-radius:999px; transition:background-color .25s ease, color .25s ease; display:inline-flex; }
+  .navpill.on { background:rgba(208,80,0,.14); }
+  .fab { width:54px; height:54px; border-radius:50%; display:flex; align-items:center; justify-content:center;
+    background:linear-gradient(135deg,#f97316,#d05000); color:#fff; box-shadow:0 6px 16px rgba(208,80,0,.45);
+    transition:transform .25s cubic-bezier(.34,1.56,.64,1), box-shadow .25s ease; }
+  .fab.on { transform:scale(1.08); box-shadow:0 8px 20px rgba(208,80,0,.6), 0 0 0 5px rgba(208,80,0,.18); }
+  /* lock screen */
+  .lockdot { width:12px; height:12px; border-radius:50%; background:#cbd5e1; transition:background .15s; }
+  .lockdot.on { background:var(--spark); }
+  .shake { animation:shake .4s ease; }
+  @keyframes shake { 0%,100%{transform:translateX(0)} 25%{transform:translateX(-8px)} 75%{transform:translateX(8px)} }
   /* iOS-style theme switch */
   .themesw { display:inline-flex; align-items:center; width:46px; height:26px; border-radius:999px;
     background:#cbd5e1; position:relative; flex-shrink:0; vertical-align:middle; transition:background-color .3s ease; }
@@ -186,6 +210,22 @@ const LS = {
 };
 const j = (k, fb) => { try { return JSON.parse(localStorage.getItem(k)) ?? fb; } catch { return fb; } };
 const setLS = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); return true; } catch { return false; } };
+
+const APP_VERSION = 'v24';
+
+/* ---- PIN lock: SHA-256 hashed PIN + one-time recovery code ---- */
+let LOCK = j('spark_lock_v1', null); // { pinHash, recHash }
+function saveLockCfg(){ if (LOCK) setLS('spark_lock_v1', LOCK); else localStorage.removeItem('spark_lock_v1'); }
+async function sha256(s){
+  const b = await crypto.subtle.digest('SHA-256', new TextEncoder().encode('spark:' + s));
+  return [...new Uint8Array(b)].map(x => x.toString(16).padStart(2, '0')).join('');
+}
+function makeRecoveryCode(){
+  const A = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; let c = '';
+  const r = crypto.getRandomValues(new Uint8Array(8));
+  for (let i = 0; i < 8; i++) c += A[r[i] % A.length];
+  return c.slice(0,4) + '-' + c.slice(4);
+}
 
 // dark mode: apply the saved preference before first paint
 try { if (localStorage.getItem('spark_dark') === '1') document.documentElement.classList.add('dark'); } catch(e){}
@@ -650,7 +690,7 @@ function donutChart(entries){
     </div>`).join('');
   return `<div class="flex items-center gap-3">
       <svg viewBox="0 0 140 140" class="w-28 h-28 flex-shrink-0">${rings}
-        <text x="70" y="67" text-anchor="middle" fill="#0f172a" style="font-size:16px;font-weight:800">${fmtK(total)}</text>
+        <text x="70" y="67" text-anchor="middle" fill="var(--ink-txt)" style="font-size:16px;font-weight:800">${fmtK(total)}</text>
         <text x="70" y="83" text-anchor="middle" fill="#94a3b8" style="font-size:9px;font-weight:700;letter-spacing:.08em">TOTAL</text>
       </svg>
       <div class="flex-1 space-y-1.5 min-w-0">${legend}</div>
@@ -1078,13 +1118,16 @@ function viewCopilot(){
 function bottomNav() {
   const item = (tab, label, icon) => `
     <button data-act="tab" data-tab="${tab}" class="press flex-1 flex flex-col items-center gap-0.5 py-2 ${UI.tab===tab?'text-spark':'text-gray-400'}">
-      ${icon}<span class="text-[10px] font-semibold">${label}</span>
+      <span class="navpill ${UI.tab===tab?'on':''}">${icon}</span><span class="text-[10px] font-semibold">${label}</span>
     </button>`;
   return `
-  <nav class="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-md bg-white border-t border-gray-200 flex z-40" style="padding-bottom:env(safe-area-inset-bottom)">
+  <nav class="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-md bg-white border-t border-gray-200 flex items-end z-40" style="padding-bottom:env(safe-area-inset-bottom)">
     ${item('estimate','Estimate','<svg width="22" height="22" viewBox="0 0 24 24" fill="none"><path d="M9 7h6M9 11h6M9 15h4M6 3h12a1 1 0 011 1v16a1 1 0 01-1 1H6a1 1 0 01-1-1V4a1 1 0 011-1z" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>')}
     ${item('photos','Photos','<svg width="22" height="22" viewBox="0 0 24 24" fill="none"><path d="M3 7a2 2 0 012-2h2l1.5-2h7L18 5h1a2 2 0 012 2v11a2 2 0 01-2 2H5a2 2 0 01-2-2V7z" stroke="currentColor" stroke-width="1.8"/><circle cx="12" cy="12.5" r="3.5" stroke="currentColor" stroke-width="1.8"/></svg>')}
-    ${item('copilot','Copilot','<svg width="22" height="22" viewBox="0 0 24 24" fill="none"><path d="M12 3l1.6 4.4L18 9l-4.4 1.6L12 15l-1.6-4.4L6 9l4.4-1.6L12 3z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M18 14l.8 2.2L21 17l-2.2.8L18 20l-.8-2.2L15 17l2.2-.8L18 14z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg>')}
+    <button data-act="tab" data-tab="copilot" class="press flex-1 flex flex-col items-center relative" style="margin-top:-22px">
+      <span class="fab ${UI.tab==='copilot'?'on':''}"><svg width="26" height="26" viewBox="0 0 24 24" fill="none"><path d="M12 3l1.6 4.4L18 9l-4.4 1.6L12 15l-1.6-4.4L6 9l4.4-1.6L12 3z" stroke="white" stroke-width="1.7" stroke-linejoin="round" fill="rgba(255,255,255,.25)"/><path d="M18 14l.8 2.2L21 17l-2.2.8L18 20l-.8-2.2L15 17l2.2-.8L18 14z" stroke="white" stroke-width="1.4" stroke-linejoin="round"/></svg></span>
+      <span class="text-[10px] font-bold mt-1 pb-2 ${UI.tab==='copilot'?'text-spark':'text-gray-400'}">Copilot</span>
+    </button>
     ${item('deal','Deal','<svg width="22" height="22" viewBox="0 0 24 24" fill="none"><path d="M4 19V5m0 14h16M8 16V9m4 7V6m4 10v-4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>')}
     ${item('export','Export','<svg width="22" height="22" viewBox="0 0 24 24" fill="none"><path d="M12 3v12m0 0l-4-4m4 4l4-4M4 17v2a2 2 0 002 2h12a2 2 0 002-2v-2" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>')}
   </nav>`;
@@ -1124,7 +1167,11 @@ function renderHome() {
             </div>`;
           }).join('')}
         </div>`}
-      <div class="mt-6 text-center"><button data-act="globalprice" class="text-[12px] text-gray-400 font-semibold underline">Manage standard pricing</button></div>
+      <div class="mt-6 text-center space-x-4">
+        <button data-act="globalprice" class="text-[12px] text-gray-400 font-semibold underline">Manage standard pricing</button>
+        <button data-act="settings" class="text-[12px] text-gray-400 font-semibold underline">⚙ Settings</button>
+      </div>
+      <div class="mt-3 text-center text-[10px] text-gray-300">Spark Estimator ${APP_VERSION}${LOCK ? ' · 🔒 locked' : ''}</div>
     </div>
   </div>`;
   bind();
@@ -1179,6 +1226,98 @@ function modalAddRoom() {
 }
 
 /* ---- New estimate: name the walkthrough by the property address ---- */
+/* ---- Lock screen: shown on launch when a PIN is set ---- */
+function renderLock(){
+  $app.innerHTML = `
+  <div class="min-h-screen flex flex-col items-center justify-center px-8 bg-ink text-white" style="min-height:100dvh">
+    <img src="./spark-logo.png" class="h-8 w-auto mb-6" style="filter:brightness(0) invert(1)" onerror="this.style.display='none'"/>
+    <div class="font-extrabold text-xl mb-1">Enter PIN</div>
+    <div class="text-[13px] text-gray-400 mb-5">This estimator is locked.</div>
+    <input id="pinIn" type="password" inputmode="numeric" autocomplete="off" maxlength="8"
+      class="w-44 text-center text-2xl tracking-[.5em] font-extrabold bg-white/10 rounded-xl py-3 outline-none focus:ring-2 ring-spark" />
+    <button id="pinGo" class="press mt-5 px-10 py-3 bg-spark rounded-xl font-bold">Unlock</button>
+    <div id="pinErr" class="text-[12px] text-red-400 mt-3 min-h-[1.2em]"></div>
+    <button id="pinForgot" class="text-[12px] text-gray-500 underline mt-6">Forgot PIN?</button>
+    <div id="recBox" class="hidden w-full max-w-xs mt-4 text-center">
+      <div class="text-[12px] text-gray-400 mb-2">Enter your recovery code (shown when you set the PIN):</div>
+      <input id="recIn" autocomplete="off" placeholder="XXXX-XXXX" class="w-full text-center font-bold bg-white/10 rounded-xl py-2.5 outline-none uppercase" />
+      <button id="recGo" class="press w-full mt-2 py-2.5 bg-white/15 rounded-xl font-bold text-sm">Unlock with recovery code</button>
+      <button id="wipeGo" class="press w-full mt-4 py-2.5 text-red-400 text-[12px] font-semibold">I lost both. Erase all app data and start fresh</button>
+    </div>
+  </div>`;
+  const inp = document.getElementById('pinIn'), err = document.getElementById('pinErr');
+  const fail = (m) => { err.textContent = m; inp.classList.add('shake'); setTimeout(() => inp.classList.remove('shake'), 450); inp.value = ''; inp.focus(); };
+  const tryPin = async () => {
+    if (!inp.value) return;
+    if (await sha256(inp.value) === LOCK.pinHash){ sessionStorage.setItem('spark_unlocked', '1'); boot(); }
+    else fail('Wrong PIN. Try again.');
+  };
+  document.getElementById('pinGo').onclick = tryPin;
+  inp.onkeydown = (e) => { if (e.key === 'Enter') tryPin(); };
+  inp.focus();
+  document.getElementById('pinForgot').onclick = () => document.getElementById('recBox').classList.remove('hidden');
+  document.getElementById('recGo').onclick = async () => {
+    const v = (document.getElementById('recIn').value || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+    if (await sha256(v) === LOCK.recHash){
+      LOCK = null; saveLockCfg(); sessionStorage.setItem('spark_unlocked', '1');
+      toast('Unlocked. The PIN was removed; set a new one in Settings.', 5000); boot();
+    } else fail('Recovery code does not match.');
+  };
+  document.getElementById('wipeGo').onclick = () => {
+    if (confirm('Erase ALL estimates, photos and settings on this device? This cannot be undone.')){ localStorage.clear(); location.reload(); }
+  };
+}
+
+/* ---- Settings: version + PIN lock management + data wipe ---- */
+function modalSettings(){
+  modal(`<div class="px-5 pb-8 pt-2">
+    <h3 class="font-bold text-lg mb-3">Settings</h3>
+    <div class="bg-gray-50 rounded-xl p-3 mb-3 flex justify-between text-sm">
+      <span class="text-gray-500">App version</span><span class="font-bold">${APP_VERSION} · offline PWA</span>
+    </div>
+    <div class="text-[12px] font-semibold text-gray-400 uppercase mb-2">App lock</div>
+    ${LOCK ? `
+      <p class="text-[13px] text-gray-500 mb-2">A PIN is required to open the app. The PIN is stored only as a SHA-256 hash on this device.</p>
+      <button id="stRmLock" class="press w-full py-2.5 border border-gray-200 rounded-xl font-semibold text-gray-600 text-sm">Remove PIN lock</button>
+    ` : `
+      <p class="text-[13px] text-gray-500 mb-2">Set a 4-8 digit PIN. It is asked every time the app opens. You will get a one-time recovery code, save it somewhere safe.</p>
+      <input id="stPin" type="password" inputmode="numeric" maxlength="8" placeholder="New PIN (4-8 digits)"
+        class="w-full px-3 py-2.5 rounded-xl border border-gray-200 font-semibold outline-none focus:border-spark mb-2" />
+      <button id="stSetLock" class="press w-full py-2.5 bg-ink text-white rounded-xl font-bold text-sm">Enable PIN lock</button>
+      <div id="stRec" class="hidden mt-3 bg-spark-50 border border-spark-200 rounded-xl p-3 text-center">
+        <div class="text-[12px] text-gray-500 mb-1">Your recovery code. Screenshot or write it down, it is shown ONCE:</div>
+        <div id="stRecCode" class="font-extrabold text-xl tracking-widest text-spark"></div>
+      </div>
+    `}
+    <div class="text-[12px] font-semibold text-gray-400 uppercase mt-5 mb-2">Data</div>
+    <p class="text-[12px] text-gray-400 mb-2">Everything is stored only on this device. Nothing is uploaded.</p>
+    <button id="stWipe" class="press w-full py-2.5 border border-red-200 text-red-500 rounded-xl font-semibold text-sm">Erase all app data</button>
+  </div>`);
+  setTimeout(() => {
+    const set = document.getElementById('stSetLock');
+    if (set) set.onclick = async () => {
+      const v = (document.getElementById('stPin').value || '').trim();
+      if (!/^\d{4,8}$/.test(v)){ toast('PIN must be 4-8 digits'); return; }
+      const rec = makeRecoveryCode();
+      LOCK = { pinHash: await sha256(v), recHash: await sha256(rec.replace(/-/g, '')) };
+      saveLockCfg(); sessionStorage.setItem('spark_unlocked', '1');
+      document.getElementById('stRec').classList.remove('hidden');
+      document.getElementById('stRecCode').textContent = rec;
+      set.textContent = 'PIN lock enabled ✓'; set.disabled = true;
+      toast('PIN lock on. Save the recovery code!', 5000);
+    };
+    const rm = document.getElementById('stRmLock');
+    if (rm) rm.onclick = () => {
+      const v = prompt('Enter your current PIN to remove the lock:');
+      if (v == null) return;
+      sha256(v).then(h => { if (h === LOCK.pinHash){ LOCK = null; saveLockCfg(); closeModal(); toast('PIN lock removed'); } else toast('Wrong PIN'); });
+    };
+    document.getElementById('stWipe').onclick = () => {
+      if (confirm('Erase ALL estimates, photos and settings on this device? This cannot be undone.')){ localStorage.clear(); location.reload(); }
+    };
+  }, 120);
+}
+
 /* real addresses via OpenStreetMap (Photon API, no key). Best effort:
    offline or blocked -> silent, manual typing still works. */
 function fmtOSM(p){
@@ -1226,13 +1365,20 @@ function modalNewEstimate() {
       if (!navigator.geolocation){ toast('Location not available on this device'); return; }
       toast('Getting your location…');
       navigator.geolocation.getCurrentPosition(async pos => {
+        const lat = pos.coords.latitude, lon = pos.coords.longitude;
         try {
-          const r = await fetch(`https://photon.komoot.io/reverse?lat=${pos.coords.latitude}&lon=${pos.coords.longitude}`);
+          const r = await fetch(`https://photon.komoot.io/reverse?lat=${lat}&lon=${lon}`);
           const j = await r.json();
           const a = j.features && j.features[0] && fmtOSM(j.features[0].properties);
-          if (a){ el.value = a; sugg.innerHTML = ''; toast('Address found ✓'); }
-          else toast('No address found at this spot. Type it in.');
-        } catch(e){ toast('Address lookup needs a connection. Type it in.', 4000); }
+          if (a){ el.value = a; sugg.innerHTML = ''; toast('Address found ✓'); return; }
+          throw new Error('no result');
+        } catch(e){
+          // offline: GPS itself is satellite and works with zero signal, only
+          // the address lookup needs internet. Keep the exact coordinates.
+          el.value = 'Property @ ' + lat.toFixed(5) + ', ' + lon.toFixed(5);
+          sugg.innerHTML = '';
+          toast('Offline: exact GPS location saved. You can rename it to the street address later.', 5000);
+        }
       }, err => toast(err.code === 1 ? 'Location permission denied. Allow it and retry.' : 'Could not get your location.', 4500),
       { enableHighAccuracy: true, timeout: 10000 });
     };
@@ -1325,7 +1471,7 @@ function clientReport(){
   const photos=P.photos.length?`<div class="photos">${P.photos.map(ph=>`<div class="ph"><img src="${ph.data}"/>${ph.caption?`<div class="cap">${esc(ph.caption)}</div>`:''}${ph.serial&&ph.serial!=='(none found)'?`<div class="sn">SN: ${esc(ph.serial)}</div>`:''}</div>`).join('')}</div>`:'';
   const logo=location.href.split('#')[0].replace(/index\.html$/,'')+'spark-logo.png';
   const html=`<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(P.name||'Property')} Repair Estimate</title>
-  <style>*{box-sizing:border-box}body{font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#0f172a;margin:0 auto;padding:28px;max-width:820px}
+  <style>*{box-sizing:border-box}html{background:#fff;color-scheme:light only}body{font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;background:#fff;color:#0f172a;margin:0 auto;padding:28px;max-width:820px}
   .top{display:flex;align-items:flex-start;justify-content:space-between;border-bottom:3px solid #d05000;padding-bottom:14px;margin-bottom:16px}
   .top img{height:28px;margin-bottom:6px;display:block}h1{font-size:20px;margin:0}.sub{color:#64748b;font-size:13px;margin-top:2px}
   .glabel{font-size:11px;color:#94a3b8;text-transform:uppercase;letter-spacing:.05em;text-align:right}.grand{font-size:30px;font-weight:800;color:#d05000;text-align:right;line-height:1}
@@ -1522,6 +1668,7 @@ function handle(e) {
     case 'voicewalk': startVoiceWalk(); break;
     case 'dark': toggleDark(); break;
     case 'aipack': downloadAIPack(); break;
+    case 'settings': modalSettings(); break;
     case 'compare': modalCompare(); break;
     case 'share': modalShare(); break;
     case 'report': clientReport(); break;
@@ -2384,6 +2531,8 @@ function confirmDel(msg, fn) {
    12. BOOT + PWA
    ===================================================================== */
 function boot() {
+  // PIN lock gate: ask once per session before anything renders
+  if (LOCK && sessionStorage.getItem('spark_unlocked') !== '1'){ renderLock(); return; }
   // Imported estimate via shared link? Bring it in, then show it.
   if (/import=/.test(location.hash)) {
     P = null; render();
