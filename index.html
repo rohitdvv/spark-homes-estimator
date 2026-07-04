@@ -211,7 +211,7 @@ const LS = {
 const j = (k, fb) => { try { return JSON.parse(localStorage.getItem(k)) ?? fb; } catch { return fb; } };
 const setLS = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); return true; } catch { return false; } };
 
-const APP_VERSION = 'v29';
+const APP_VERSION = 'v30';
 let AGENT = j('spark_agent_v1', '');
 function setAgent(n){ AGENT = (n || '').trim(); setLS('spark_agent_v1', AGENT); }
 
@@ -281,9 +281,10 @@ function blankProject(name) {
     photos: [],         // {id,data,caption,serial}
     deal: { arv: '', purchase: '', weeks: 8, perWeek: 350, sellPct: 8 }
   };
-  // sensible defaults: the house-wide singletons + 1 kitchen + 1 bath
+  // sensible defaults: the house-wide singletons + kitchen, bath, bedroom
   ['interior','systems','exterior','kitchen'].forEach(t => addRoom(p, t, true));
   addRoom(p, 'bathroom', true);
+  addRoom(p, 'bedroom', true);
   return p;
 }
 function addRoom(p, type, silent) {
@@ -1218,18 +1219,18 @@ function renderHome() {
   $app.innerHTML = `
   <div class="view min-h-screen flex flex-col bg-[#f1f3f6]">
     <header class="px-5 pb-14 text-white" style="padding-top:max(3.25rem,calc(env(safe-area-inset-top) + 1rem));background:linear-gradient(155deg,#233350 0%,#0b1220 92%)">
-      <div class="flex items-center justify-between mb-5">
-        <img src="./spark-logo.png" class="h-6 w-auto" style="filter:brightness(0) invert(1)" onerror="this.style.display='none'" />
-        <div class="flex items-center gap-4">${darkBtn('')}<button data-act="settings" class="press text-white/80 text-xl" aria-label="Settings">⚙</button></div>
+      <div class="flex items-center justify-between mb-6">
+        <img src="./spark-logo.png" class="h-9 w-auto" style="filter:brightness(0) invert(1)" onerror="this.style.display='none'" />
+        <div class="flex items-center gap-3.5">${darkBtn('')}<button data-act="settings" class="press text-white/75 text-lg" aria-label="Settings">⚙</button></div>
       </div>
-      <h1 class="text-[26px] font-extrabold leading-tight">${greet}${who}</h1>
-      <p class="text-white/50 text-[13px] mt-0.5">${projects.length ? 'Your acquisition pipeline at a glance.' : 'Walk a property. Know the number before you offer.'}</p>
+      <h1 class="text-[20px] font-bold leading-tight">${greet}${who}</h1>
+      <p class="text-white/50 text-[12.5px] mt-1">${projects.length ? 'Your acquisition pipeline at a glance.' : 'Walk a property. Know the number before you offer.'}</p>
       <div class="grid grid-cols-3 gap-2.5 mt-5" style="margin-bottom:-3.25rem">
         ${tile('Properties', projects.length)}${tile('Repair value', fmtK(pipeline))}${tile('GO deals', goCount)}
       </div>
     </header>
 
-    <div class="flex-1 px-4 pt-16 pb-6">
+    <div class="flex-1 px-4 pt-12 pb-6">
       <button data-act="new" class="press w-full py-4 mb-2.5 bg-spark text-white rounded-2xl font-bold text-lg shadow-lg shadow-spark/30 flex items-center justify-center gap-2">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none"><path d="M12 5v14M5 12h14" stroke="white" stroke-width="2.6" stroke-linecap="round"/></svg>New Estimate
       </button>
