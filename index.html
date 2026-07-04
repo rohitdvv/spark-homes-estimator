@@ -8,7 +8,7 @@
 <meta name="mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
 <meta name="apple-mobile-web-app-title" content="Spark Estimator" />
-<title>Spark Homes — Repair Estimator</title>
+<title>Spark Homes - Repair Estimator</title>
 <link rel="manifest" href="./manifest.json" />
 <link rel="apple-touch-icon" href="./apple-touch-icon.png" />
 <link rel="icon" href="./favicon.png" />
@@ -147,7 +147,7 @@
 
 <script>
 /* =====================================================================
-   SPARK HOMES — REPAIR ESTIMATOR
+   SPARK HOMES - REPAIR ESTIMATOR
    Single-file, offline-first PWA. Vanilla JS. No build step.
    Data model: a project owns ROOM INSTANCES; each room instance owns
    GROUPS; each (room,group,item) cell holds {checked, qty}. Prices come
@@ -155,7 +155,7 @@
    ===================================================================== */
 
 /* ---------- 1. OFFICIAL PRICE LIST (verbatim from Pricing List.csv) ---------- */
-const PRICE_LIST = [{"id": "ig-01","name": "Refinish Hardwood Floor","cost": 2.35,"unit": "sqft"},{"id": "ig-02","name": "New Hardwoods 1.5\"","cost": 10.0,"unit": "sqft"},{"id": "ig-03","name": "New Hardwoods 2\"","cost": 4.75,"unit": "sqft"},{"id": "ig-04","name": "Hardwood Splicing","cost": 8.4,"unit": "sqft"},{"id": "ig-05","name": "Vinyl Plank","cost": 2.5,"unit": "sqft"},{"id": "ig-06","name": "Carpet","cost": 1.9,"unit": "sqft"},{"id": "ig-07","name": "Interior Paint — 2 Tone","cost": 2.95,"unit": "sqft"},{"id": "ig-08","name": "Drywall Repair","cost": 900.0,"unit": "1,000 sqft"},{"id": "ig-09","name": "Wallpaper Removal","cost": 250.0,"unit": "room"},{"id": "ig-10","name": "Interior Door — Hollow Slab","cost": 125.0,"unit": "ea."},{"id": "ig-11","name": "Interior Door Hardware (Knob + Hinges + Labor)","cost": 25.0,"unit": "ea."},{"id": "ig-12","name": "Bifold Door with Framing","cost": 400.0,"unit": "ea."},{"id": "ig-13","name": "Interior Door — Pre-hung","cost": 200.0,"unit": "ea."},{"id": "ig-14","name": "Front Entry Door","cost": 475.0,"unit": "ea."},{"id": "ig-15","name": "Front Entry Door Hardware","cost": 80.0,"unit": "ea."},{"id": "ig-16","name": "Exterior Door Hardware","cost": 75.0,"unit": "handle"},{"id": "ig-17","name": "Exterior Insulated Side Door (Installed)","cost": 500.0,"unit": "ea."},{"id": "ig-18","name": "Sliding Glass Door","cost": 1025.0,"unit": "ea."},{"id": "ig-19","name": "Trim Out (Casing, Crown, Baseboard)","cost": 3.75,"unit": "LF"},{"id": "ig-20","name": "MISC / Punch List","cost": 2650.0,"unit": "flat"},{"id": "ig-21","name": "Finish Out Labor","cost": 1350.0,"unit": "flat"},{"id": "ig-22","name": "Light Fixtures","cost": 70.0,"unit": "100 sqft"},{"id": "ig-23","name": "Bedbug Spray / Heat Treat","cost": 475.0,"unit": "ea."},{"id": "ig-24","name": "Termite Treatment","cost": 650.0,"unit": "ea."},{"id": "ig-25","name": "Demo","cost": 1375.0,"unit": "variable"},{"id": "ig-26","name": "Haul Off","cost": 725.0,"unit": "load"},{"id": "ig-27","name": "Final Cleaning","cost": 325.0,"unit": "flat"},{"id": "ig-28","name": "Staging","cost": 0.9,"unit": "sqft"},{"id": "kt-01","name": "Hinges and Pulls","cost": 275.0,"unit": "kitchen"},{"id": "kt-02","name": "Cabinets Uppers","cost": 125.0,"unit": "LF"},{"id": "kt-03","name": "Cabinets Lowers","cost": 150.0,"unit": "LF"},{"id": "kt-04","name": "Cabinet Door Faces Only","cost": 80.0,"unit": "door"},{"id": "kt-05","name": "Cabinets (Labor & Paint)","cost": 1100.0,"unit": "kitchen"},{"id": "kt-06","name": "Granite + 4\" Splash Guard","cost": 40.0,"unit": "LF"},{"id": "kt-07","name": "Backsplash","cost": 725.0,"unit": "house"},{"id": "kt-08","name": "Misc Woodwork","cost": 500.0,"unit": "variable"},{"id": "kt-09","name": "Tile — Large Areas","cost": 6.45,"unit": "sqft"},{"id": "kt-10","name": "Tile — Small Areas","cost": 10.0,"unit": "sqft"},{"id": "kt-11","name": "Undermount Kitchen Sink","cost": 325.0,"unit": "ea."},{"id": "kt-12","name": "Microwave / Hood","cost": 500.0,"unit": "ea."},{"id": "kt-13","name": "Range","cost": 725.0,"unit": "ea."},{"id": "kt-14","name": "Wall Oven","cost": 1075.0,"unit": "ea."},{"id": "kt-15","name": "Cooktop","cost": 550.0,"unit": "ea."},{"id": "kt-16","name": "Dishwasher","cost": 575.0,"unit": "ea."},{"id": "kt-17","name": "Fridge","cost": 1175.0,"unit": "ea."},{"id": "ba-01","name": "Granite ($/LF)","cost": 35.0,"unit": "LF"},{"id": "ba-02","name": "New Bottom Vanity","cost": 125.0,"unit": "LF"},{"id": "ba-03","name": "Home Depot Vanity w/ Sink (18\")","cost": 225.0,"unit": "ea."},{"id": "ba-04","name": "Toilet","cost": 150.0,"unit": "ea."},{"id": "ba-05","name": "Tile — Large Areas","cost": 5.8,"unit": "sqft"},{"id": "ba-06","name": "Tile — Small Areas","cost": 10.0,"unit": "sqft"},{"id": "ba-07","name": "Reglaze Tub or Chemical Clean","cost": 350.0,"unit": "ea."},{"id": "ba-08","name": "Reglaze Tub + Surround","cost": 750.0,"unit": "ea."},{"id": "ba-09","name": "Reglaze Shower","cost": 1325.0,"unit": "ea."},{"id": "ba-10","name": "Tiled Shower Tear Out + Tile Install","cost": 3100.0,"unit": "ea."},{"id": "ba-11","name": "Tub Tile Surround Tear Out + Tile Install (incl. tub)","cost": 2250.0,"unit": "ea."},{"id": "ba-12","name": "Shower Plastic Insert Tear Out + New Insert","cost": 825.0,"unit": "ea."},{"id": "ba-13","name": "Tub Tear Out + New Insert & Tub","cost": 1575.0,"unit": "ea."},{"id": "ba-14","name": "Undermount Sink","cost": 150.0,"unit": "ea."},{"id": "ba-15","name": "Mirror","cost": 200.0,"unit": "ea."},{"id": "ba-16","name": "HVL (needed if no window)","cost": 275.0,"unit": "ea."},{"id": "as-01","name": "Furnace","cost": 3350.0,"unit": "ea."},{"id": "as-02","name": "Condensing Unit","cost": 3300.0,"unit": "ea."},{"id": "as-03","name": "Package Unit","cost": 4700.0,"unit": "ea."},{"id": "as-04","name": "A-Coil (if no condensing unit)","cost": 1625.0,"unit": "ea."},{"id": "as-05","name": "Ducting (if NO HVAC)","cost": 3200.0,"unit": "ea."},{"id": "as-06","name": "Duct Cleaning — Floor Vents","cost": 550.0,"unit": "ea."},{"id": "as-07","name": "Window Unit Replacement 220","cost": 575.0,"unit": "ea."},{"id": "as-08","name": "Hot Water Heater w/ Expansion Tank","cost": 1425.0,"unit": "ea."},{"id": "as-09","name": "Hot Water Heater Expansion Tank Only","cost": 200.0,"unit": "ea."},{"id": "as-10","name": "Switches / Outlets","cost": 1400.0,"unit": "house"},{"id": "as-11","name": "Standard Electrical","cost": 1650.0,"unit": "house"},{"id": "as-12","name": "Subfloor","cost": 8.2,"unit": "sqft"},{"id": "as-13","name": "Framing","cost": 950.0,"unit": "variable"},{"id": "as-14","name": "Structural (Pier)","cost": 375.0,"unit": "pier"},{"id": "as-15","name": "Structural Foam Injection","cost": 5.85,"unit": "sqft of affected area"},{"id": "as-16","name": "Roof","cost": 1100.0,"unit": "225 sqft L&M"},{"id": "as-17","name": "Plumbing","cost": 1000.0,"unit": "variable"},{"id": "as-18","name": "Electrical Panel Swap to 200A","cost": 2350.0,"unit": "ea."},{"id": "as-19","name": "Full Electrical Rewire (to Studs)","cost": 5.65,"unit": "sqft"},{"id": "as-20","name": "Full Electrical Rewire (leaving Drywall)","cost": 9.15,"unit": "sqft"},{"id": "as-21","name": "Wall Insulation (to Studs)","cost": 1.2,"unit": "sqft"},{"id": "as-22","name": "Attic Insulation","cost": 1225.0,"unit": "1,600 sqft house"},{"id": "as-23","name": "New Drywall to Studs (L&M)","cost": 5.2,"unit": "sqft"},{"id": "as-24","name": "Aluminum Wiring","cost": 2450.0,"unit": "variable"},{"id": "ex-01","name": "Fence Repair — Chain Link / Wood Gate","cost": 225.0,"unit": "variable"},{"id": "ex-02","name": "Fence Repair — Chain Link","cost": 275.0,"unit": "LF"},{"id": "ex-03","name": "Fence Repair — Privacy 6ft","cost": 30.0,"unit": "LF"},{"id": "ex-04","name": "Landscaping","cost": 450.0,"unit": "variable"},{"id": "ex-05","name": "Vinyl Siding (10'x10')","cost": 300.0,"unit": "square"},{"id": "ex-06","name": "Tuck Pointing","cost": 225.0,"unit": "variable"},{"id": "ex-07","name": "Exterior Paint","cost": 2.6,"unit": "sqft"},{"id": "ex-08","name": "Exterior Wood Repair","cost": 525.0,"unit": "variable"},{"id": "ex-09","name": "Siding Repair (10'x10')","cost": 975.0,"unit": "section"},{"id": "ex-10","name": "Tree Trimming","cost": 450.0,"unit": "variable"},{"id": "ex-11","name": "Tree Removal (w/o stump)","cost": 1450.0,"unit": "tree"},{"id": "ex-12","name": "Stump Grinding","cost": 250.0,"unit": "stump"},{"id": "ex-13","name": "Aluminum Window Paint (Int/Ext)","cost": 700.0,"unit": "house"},{"id": "ex-14","name": "Windows (3x5 sash)","cost": 425.0,"unit": "ea."},{"id": "ex-15","name": "Window Repair — Non-Insulated (6x6+)","cost": 35.0,"unit": "sf"},{"id": "ex-16","name": "Window Repair — Insulated (6x6+)","cost": 40.0,"unit": "sf"},{"id": "ex-17","name": "Aluminum Framed Window Pane","cost": 100.0,"unit": "pane"},{"id": "ex-18","name": "Guttering","cost": 4.15,"unit": "LF"},{"id": "ex-19","name": "Concrete w/ Demo","cost": 200.0,"unit": "sqft"},{"id": "ex-20","name": "Mowing (summer, every 2 weeks)","cost": 45.0,"unit": "mowing"},{"id": "ex-21","name": "Garage Door — 1 Car","cost": 975.0,"unit": "ea."},{"id": "ex-22","name": "Garage Door — 2 Car (Installed)","cost": 1225.0,"unit": "ea."},{"id": "ex-23","name": "Garage Conversion","cost": 8850.0,"unit": "ea."}];
+const PRICE_LIST = [{"id": "ig-01","name": "Refinish Hardwood Floor","cost": 2.35,"unit": "sqft"},{"id": "ig-02","name": "New Hardwoods 1.5\"","cost": 10.0,"unit": "sqft"},{"id": "ig-03","name": "New Hardwoods 2\"","cost": 4.75,"unit": "sqft"},{"id": "ig-04","name": "Hardwood Splicing","cost": 8.4,"unit": "sqft"},{"id": "ig-05","name": "Vinyl Plank","cost": 2.5,"unit": "sqft"},{"id": "ig-06","name": "Carpet","cost": 1.9,"unit": "sqft"},{"id": "ig-07","name": "Interior Paint - 2 Tone","cost": 2.95,"unit": "sqft"},{"id": "ig-08","name": "Drywall Repair","cost": 900.0,"unit": "1,000 sqft"},{"id": "ig-09","name": "Wallpaper Removal","cost": 250.0,"unit": "room"},{"id": "ig-10","name": "Interior Door - Hollow Slab","cost": 125.0,"unit": "ea."},{"id": "ig-11","name": "Interior Door Hardware (Knob + Hinges + Labor)","cost": 25.0,"unit": "ea."},{"id": "ig-12","name": "Bifold Door with Framing","cost": 400.0,"unit": "ea."},{"id": "ig-13","name": "Interior Door - Pre-hung","cost": 200.0,"unit": "ea."},{"id": "ig-14","name": "Front Entry Door","cost": 475.0,"unit": "ea."},{"id": "ig-15","name": "Front Entry Door Hardware","cost": 80.0,"unit": "ea."},{"id": "ig-16","name": "Exterior Door Hardware","cost": 75.0,"unit": "handle"},{"id": "ig-17","name": "Exterior Insulated Side Door (Installed)","cost": 500.0,"unit": "ea."},{"id": "ig-18","name": "Sliding Glass Door","cost": 1025.0,"unit": "ea."},{"id": "ig-19","name": "Trim Out (Casing, Crown, Baseboard)","cost": 3.75,"unit": "LF"},{"id": "ig-20","name": "MISC / Punch List","cost": 2650.0,"unit": "flat"},{"id": "ig-21","name": "Finish Out Labor","cost": 1350.0,"unit": "flat"},{"id": "ig-22","name": "Light Fixtures","cost": 70.0,"unit": "100 sqft"},{"id": "ig-23","name": "Bedbug Spray / Heat Treat","cost": 475.0,"unit": "ea."},{"id": "ig-24","name": "Termite Treatment","cost": 650.0,"unit": "ea."},{"id": "ig-25","name": "Demo","cost": 1375.0,"unit": "variable"},{"id": "ig-26","name": "Haul Off","cost": 725.0,"unit": "load"},{"id": "ig-27","name": "Final Cleaning","cost": 325.0,"unit": "flat"},{"id": "ig-28","name": "Staging","cost": 0.9,"unit": "sqft"},{"id": "kt-01","name": "Hinges and Pulls","cost": 275.0,"unit": "kitchen"},{"id": "kt-02","name": "Cabinets Uppers","cost": 125.0,"unit": "LF"},{"id": "kt-03","name": "Cabinets Lowers","cost": 150.0,"unit": "LF"},{"id": "kt-04","name": "Cabinet Door Faces Only","cost": 80.0,"unit": "door"},{"id": "kt-05","name": "Cabinets (Labor & Paint)","cost": 1100.0,"unit": "kitchen"},{"id": "kt-06","name": "Granite + 4\" Splash Guard","cost": 40.0,"unit": "LF"},{"id": "kt-07","name": "Backsplash","cost": 725.0,"unit": "house"},{"id": "kt-08","name": "Misc Woodwork","cost": 500.0,"unit": "variable"},{"id": "kt-09","name": "Tile - Large Areas","cost": 6.45,"unit": "sqft"},{"id": "kt-10","name": "Tile - Small Areas","cost": 10.0,"unit": "sqft"},{"id": "kt-11","name": "Undermount Kitchen Sink","cost": 325.0,"unit": "ea."},{"id": "kt-12","name": "Microwave / Hood","cost": 500.0,"unit": "ea."},{"id": "kt-13","name": "Range","cost": 725.0,"unit": "ea."},{"id": "kt-14","name": "Wall Oven","cost": 1075.0,"unit": "ea."},{"id": "kt-15","name": "Cooktop","cost": 550.0,"unit": "ea."},{"id": "kt-16","name": "Dishwasher","cost": 575.0,"unit": "ea."},{"id": "kt-17","name": "Fridge","cost": 1175.0,"unit": "ea."},{"id": "ba-01","name": "Granite ($/LF)","cost": 35.0,"unit": "LF"},{"id": "ba-02","name": "New Bottom Vanity","cost": 125.0,"unit": "LF"},{"id": "ba-03","name": "Home Depot Vanity w/ Sink (18\")","cost": 225.0,"unit": "ea."},{"id": "ba-04","name": "Toilet","cost": 150.0,"unit": "ea."},{"id": "ba-05","name": "Tile - Large Areas","cost": 5.8,"unit": "sqft"},{"id": "ba-06","name": "Tile - Small Areas","cost": 10.0,"unit": "sqft"},{"id": "ba-07","name": "Reglaze Tub or Chemical Clean","cost": 350.0,"unit": "ea."},{"id": "ba-08","name": "Reglaze Tub + Surround","cost": 750.0,"unit": "ea."},{"id": "ba-09","name": "Reglaze Shower","cost": 1325.0,"unit": "ea."},{"id": "ba-10","name": "Tiled Shower Tear Out + Tile Install","cost": 3100.0,"unit": "ea."},{"id": "ba-11","name": "Tub Tile Surround Tear Out + Tile Install (incl. tub)","cost": 2250.0,"unit": "ea."},{"id": "ba-12","name": "Shower Plastic Insert Tear Out + New Insert","cost": 825.0,"unit": "ea."},{"id": "ba-13","name": "Tub Tear Out + New Insert & Tub","cost": 1575.0,"unit": "ea."},{"id": "ba-14","name": "Undermount Sink","cost": 150.0,"unit": "ea."},{"id": "ba-15","name": "Mirror","cost": 200.0,"unit": "ea."},{"id": "ba-16","name": "HVL (needed if no window)","cost": 275.0,"unit": "ea."},{"id": "as-01","name": "Furnace","cost": 3350.0,"unit": "ea."},{"id": "as-02","name": "Condensing Unit","cost": 3300.0,"unit": "ea."},{"id": "as-03","name": "Package Unit","cost": 4700.0,"unit": "ea."},{"id": "as-04","name": "A-Coil (if no condensing unit)","cost": 1625.0,"unit": "ea."},{"id": "as-05","name": "Ducting (if NO HVAC)","cost": 3200.0,"unit": "ea."},{"id": "as-06","name": "Duct Cleaning - Floor Vents","cost": 550.0,"unit": "ea."},{"id": "as-07","name": "Window Unit Replacement 220","cost": 575.0,"unit": "ea."},{"id": "as-08","name": "Hot Water Heater w/ Expansion Tank","cost": 1425.0,"unit": "ea."},{"id": "as-09","name": "Hot Water Heater Expansion Tank Only","cost": 200.0,"unit": "ea."},{"id": "as-10","name": "Switches / Outlets","cost": 1400.0,"unit": "house"},{"id": "as-11","name": "Standard Electrical","cost": 1650.0,"unit": "house"},{"id": "as-12","name": "Subfloor","cost": 8.2,"unit": "sqft"},{"id": "as-13","name": "Framing","cost": 950.0,"unit": "variable"},{"id": "as-14","name": "Structural (Pier)","cost": 375.0,"unit": "pier"},{"id": "as-15","name": "Structural Foam Injection","cost": 5.85,"unit": "sqft of affected area"},{"id": "as-16","name": "Roof","cost": 1100.0,"unit": "225 sqft L&M"},{"id": "as-17","name": "Plumbing","cost": 1000.0,"unit": "variable"},{"id": "as-18","name": "Electrical Panel Swap to 200A","cost": 2350.0,"unit": "ea."},{"id": "as-19","name": "Full Electrical Rewire (to Studs)","cost": 5.65,"unit": "sqft"},{"id": "as-20","name": "Full Electrical Rewire (leaving Drywall)","cost": 9.15,"unit": "sqft"},{"id": "as-21","name": "Wall Insulation (to Studs)","cost": 1.2,"unit": "sqft"},{"id": "as-22","name": "Attic Insulation","cost": 1225.0,"unit": "1,600 sqft house"},{"id": "as-23","name": "New Drywall to Studs (L&M)","cost": 5.2,"unit": "sqft"},{"id": "as-24","name": "Aluminum Wiring","cost": 2450.0,"unit": "variable"},{"id": "ex-01","name": "Fence Repair - Chain Link / Wood Gate","cost": 225.0,"unit": "variable"},{"id": "ex-02","name": "Fence Repair - Chain Link","cost": 275.0,"unit": "LF"},{"id": "ex-03","name": "Fence Repair - Privacy 6ft","cost": 30.0,"unit": "LF"},{"id": "ex-04","name": "Landscaping","cost": 450.0,"unit": "variable"},{"id": "ex-05","name": "Vinyl Siding (10'x10')","cost": 300.0,"unit": "square"},{"id": "ex-06","name": "Tuck Pointing","cost": 225.0,"unit": "variable"},{"id": "ex-07","name": "Exterior Paint","cost": 2.6,"unit": "sqft"},{"id": "ex-08","name": "Exterior Wood Repair","cost": 525.0,"unit": "variable"},{"id": "ex-09","name": "Siding Repair (10'x10')","cost": 975.0,"unit": "section"},{"id": "ex-10","name": "Tree Trimming","cost": 450.0,"unit": "variable"},{"id": "ex-11","name": "Tree Removal (w/o stump)","cost": 1450.0,"unit": "tree"},{"id": "ex-12","name": "Stump Grinding","cost": 250.0,"unit": "stump"},{"id": "ex-13","name": "Aluminum Window Paint (Int/Ext)","cost": 700.0,"unit": "house"},{"id": "ex-14","name": "Windows (3x5 sash)","cost": 425.0,"unit": "ea."},{"id": "ex-15","name": "Window Repair - Non-Insulated (6x6+)","cost": 35.0,"unit": "sf"},{"id": "ex-16","name": "Window Repair - Insulated (6x6+)","cost": 40.0,"unit": "sf"},{"id": "ex-17","name": "Aluminum Framed Window Pane","cost": 100.0,"unit": "pane"},{"id": "ex-18","name": "Guttering","cost": 4.15,"unit": "LF"},{"id": "ex-19","name": "Concrete w/ Demo","cost": 200.0,"unit": "sqft"},{"id": "ex-20","name": "Mowing (summer, every 2 weeks)","cost": 45.0,"unit": "mowing"},{"id": "ex-21","name": "Garage Door - 1 Car","cost": 975.0,"unit": "ea."},{"id": "ex-22","name": "Garage Door - 2 Car (Installed)","cost": 1225.0,"unit": "ea."},{"id": "ex-23","name": "Garage Conversion","cost": 8850.0,"unit": "ea."}];
 
 /* ---------- 2. GROUP CATALOG (every price-list item is placed) ---------- */
 const GROUPS = {
@@ -211,7 +211,7 @@ const LS = {
 const j = (k, fb) => { try { return JSON.parse(localStorage.getItem(k)) ?? fb; } catch { return fb; } };
 const setLS = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); return true; } catch { return false; } };
 
-const APP_VERSION = 'v25';
+const APP_VERSION = 'v26';
 
 /* ---- PIN lock: SHA-256 hashed PIN + one-time recovery code ---- */
 let LOCK = j('spark_lock_v1', null); // { pinHash, recHash }
@@ -318,7 +318,7 @@ function save() {
   }
   setLS(LS.current, P.id);
 }
-// debounced save for high-frequency inputs (typing) — avoids serializing the
+// debounced save for high-frequency inputs (typing) - avoids serializing the
 // whole projects array (incl. base64 photos) on every keystroke.
 let _saveT;
 function saveSoon(){ clearTimeout(_saveT); _saveT = setTimeout(save, 400); }
@@ -490,7 +490,7 @@ function groupCard(roomId, gid) {
               : checked>0 ? `<span class="text-[11px] text-spark font-semibold">${checked} selected</span>`
               : `<span class="text-[11px] text-gray-400">${ids.length} items</span>`}
       </span>
-      <span class="font-bold text-[15px] ${gt>0?'text-spark':'text-gray-300'}">${gt>0?fmt(gt):'—'}</span>
+      <span class="font-bold text-[15px] ${gt>0?'text-spark':'text-gray-300'}">${gt>0?fmt(gt):'-'}</span>
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" class="text-gray-300 transition-transform ${open?'rotate-180':''}"><path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
     </button>
     <div class="acc ${open?'open':''}"><div class="acc-inner">
@@ -666,7 +666,7 @@ function viewDeal() {
 }
 
 /* =========================================================
-   Data visuals — offline, inline SVG / CSS, no libraries.
+   Data visuals - offline, inline SVG / CSS, no libraries.
    ========================================================= */
 const VIZ_COLORS = ['#d05000','#0f172a','#16a34a','#f59e0b','#0ea5e9','#a855f7','#ef4444','#14b8a6','#e11d48','#7c3aed'];
 const fmtK = n => { n = Math.round(n); return Math.abs(n) >= 1000 ? '$' + (n/1000).toFixed(Math.abs(n) >= 10000 ? 0 : 1) + 'k' : '$' + n; };
@@ -783,25 +783,25 @@ function viewExport() {
 }
 
 /* =====================================================================
-   8b. AI COPILOT  — client-side multi-agent assistant (100% offline)
+   8b. AI COPILOT  - client-side multi-agent assistant (100% offline)
    A small orchestration of rule-based "specialist agents" that read the
    live estimate, plus a retrieval assistant over an embedded knowledge
-   base. No network, no API key, no server — contest-legal.
+   base. No network, no API key, no server - contest-legal.
    ===================================================================== */
 
-/* Embedded knowledge base (repair guidelines) — the corpus for RAG-lite */
+/* Embedded knowledge base (repair guidelines) - the corpus for RAG-lite */
 const KB = [
   { k:['hvac','furnace','heat','ac','condenser','duct'], a:'HVAC is a top hidden cost. A furnace runs ~$3,350, condensing unit ~$3,300, full package unit ~$4,700. Always photograph the data plate for the serial/model, and add duct cleaning when replacing equipment.' },
-  { k:['foundation','structural','pier','settle','crack'], a:'Foundation work swings estimates by thousands. Piers run ~$375 each; foam injection ~$5.85/sqft of affected area. Never skip a structural walk — check for sloping floors and stair-step cracks.' },
+  { k:['foundation','structural','pier','settle','crack'], a:'Foundation work swings estimates by thousands. Piers run ~$375 each; foam injection ~$5.85/sqft of affected area. Never skip a structural walk - check for sloping floors and stair-step cracks.' },
   { k:['electrical','rewire','panel','aluminum','wiring'], a:'A full rewire to studs is ~$5.65/sqft; leaving drywall ~$9.15/sqft. Aluminum wiring (~$2,450) is a safety + insurability flag. A 200A panel swap is ~$2,350. Rewires almost always trigger new drywall.' },
   { k:['roof','shingle','leak'], a:'Roof is ~$1,100 per 225 sqft (labor & materials). Check for active leaks and decking damage before pricing.' },
   { k:['kitchen','cabinet','counter','granite','appliance'], a:'Cabinets and appliances are the kitchen cost drivers. Cabinet labor & paint ~$1,100; granite + splash ~$40/LF. If you replace cabinets, you usually re-do countertops.' },
   { k:['bathroom','tub','shower','tile','vanity','reglaze'], a:'Decide reglaze vs tear-out early: reglaze tub+surround ~$750 vs a tiled shower tear-out + install ~$3,100. A tub tear-out usually means new tile too. Don\'t price both reglaze and tear-out on the same fixture.' },
   { k:['flooring','floor','carpet','vinyl','hardwood','lvp'], a:'Vinyl plank ~$2.50/sqft, carpet ~$1.90/sqft, refinish hardwood ~$2.35/sqft. New flooring usually needs trim-out (casing/baseboard) afterward.' },
   { k:['arv','profit','margin','70','rule','offer','deal'], a:'Use the 70% rule as a sanity check: Max Allowable Offer = ARV × 0.70 − repairs. The Deal tab computes live profit, ROI, and a GO/CAUTION/NO-GO verdict from your running estimate.' },
-  { k:['exterior','siding','paint','fence','curb'], a:'Exterior drives curb appeal and sale price — it\'s evaluated first. Vinyl siding ~$300/square; exterior paint ~$2.60/sqft. New siding usually pairs with exterior paint.' },
+  { k:['exterior','siding','paint','fence','curb'], a:'Exterior drives curb appeal and sale price - it\'s evaluated first. Vinyl siding ~$300/square; exterior paint ~$2.60/sqft. New siding usually pairs with exterior paint.' },
   { k:['photo','serial','model','evidence','camera','video'], a:'Photograph serial/model plates on HVAC, water heaters, and appliances. Use Live Capture to grab frames from a video walkthrough, then run "Scan serial #" to OCR the plate on-device.' },
-  { k:['export','excel','zip','share'], a:'Export bundles an Excel cost breakdown (with a Deal Analysis sheet) plus every photo into one ZIP that downloads to the device — and it works fully offline.' },
+  { k:['export','excel','zip','share'], a:'Export bundles an Excel cost breakdown (with a Deal Analysis sheet) plus every photo into one ZIP that downloads to the device - and it works fully offline.' },
   { k:['offline','install','pwa','home','screen'], a:'This is an installable PWA. Add it to your home screen from Chrome/Safari; after the first load it runs fully offline and saves everything on the device.' }
 ];
 
@@ -838,30 +838,30 @@ function agentRecommend(){
   // new flooring anywhere -> trim out (interior/general)
   const floorIds = ['ig-01','ig-02','ig-03','ig-04','ig-05','ig-06'];
   const anyFloor = P.rooms.some(r => ROOM_TYPES[r.type].groups.includes('flooring') && floorIds.some(id => has(r.id,'flooring',id)));
-  if (interior) add(anyFloor, {rid:interior.id,gid:'general',id:'ig-19'}, 'Add Trim-Out', 'New flooring almost always needs casing/baseboard re-installed.');
+  if (interior) add(anyFloor, {rid:interior.id,gid:'general',id:'ig-19'}, 'Add Trim-Out', 'Because you added new flooring. Fresh flooring needs the casing and baseboard re-installed.');
 
   if (sys){
-    add(has(sys.id,'hvac','as-01'), {rid:sys.id,gid:'hvac',id:'as-06'}, 'Add Duct Cleaning', 'Replacing the furnace? Clean the ducts while the system is open.');
+    add(has(sys.id,'hvac','as-01'), {rid:sys.id,gid:'hvac',id:'as-06'}, 'Add Duct Cleaning', 'Because you added a Furnace. Clean the ducts while the system is open.');
     const rewire = has(sys.id,'electrical','as-19') || has(sys.id,'electrical','as-20');
-    add(rewire, {rid:sys.id,gid:'insulation',id:'as-23'}, 'Add New Drywall', 'A rewire to studs means drywall has to go back up.');
+    add(rewire, {rid:sys.id,gid:'insulation',id:'as-23'}, 'Add New Drywall', 'Because you added a full rewire to studs. The drywall has to go back up.');
   }
   if (kit){
     const cab = ['kt-02','kt-03','kt-05'].some(id => has(kit.id,'cabinets',id));
-    add(cab, {rid:kit.id,gid:'kcounters',id:'kt-06'}, 'Add Countertops', 'New cabinets usually pair with new countertops.');
+    add(cab, {rid:kit.id,gid:'kcounters',id:'kt-06'}, 'Add Countertops', 'Because you added new cabinets. They almost always pair with new countertops.');
   }
-  if (ext) add(has(ext.id,'siding','ex-05'), {rid:ext.id,gid:'siding',id:'ex-07'}, 'Add Exterior Paint', 'New siding sections need to be painted to match.');
+  if (ext) add(has(ext.id,'siding','ex-05'), {rid:ext.id,gid:'siding',id:'ex-07'}, 'Add Exterior Paint', 'Because you added new siding. It needs paint to match the rest.');
 
   // per-bathroom: tub tear-out without tile
   P.rooms.filter(r => r.type === 'bathroom').forEach(b => {
     const tearout = ['ba-10','ba-11','ba-13'].some(id => has(b.id,'tub',id));
     const tile = ['ba-05','ba-06'].some(id => has(b.id,'btile',id));
-    if (tearout && !tile && itemById('ba-05')) recs.push({ target:{rid:b.id,gid:'btile',id:'ba-05'}, title:`Add Tile — ${b.name}`, why:'A tub/shower tear-out exposes the wall — budget tile.' });
+    if (tearout && !tile && itemById('ba-05')) recs.push({ target:{rid:b.id,gid:'btile',id:'ba-05'}, title:`Add Tile (${b.name})`, why:`Because you added a tub/shower tear-out in ${b.name}. The tear-out exposes the wall, so budget tile.` });
   });
 
   // whole-house close-out
   if (interior && anySelection){
-    add(true, {rid:interior.id,gid:'general',id:'ig-26'}, 'Add Haul-Off', 'Any demo/replacement generates debris that has to be hauled.');
-    add(true, {rid:interior.id,gid:'general',id:'ig-27'}, 'Add Final Cleaning', 'Every flip needs a final clean before listing.');
+    add(true, {rid:interior.id,gid:'general',id:'ig-26'}, 'Add Haul-Off', 'Because you have repairs selected. Demo and replacements generate debris that has to be hauled off.');
+    add(true, {rid:interior.id,gid:'general',id:'ig-27'}, 'Add Final Cleaning', 'Because you have repairs selected. Every flip needs a final clean before listing.');
   }
   return recs;
 }
@@ -887,32 +887,48 @@ function agentAnomaly(){
   P.rooms.filter(r => r.type === 'bathroom').forEach(b => {
     const reglaze = ['ba-07','ba-08','ba-09'].some(id => isChecked(b.id,'tub',id));
     const tearout = ['ba-10','ba-11','ba-13'].some(id => isChecked(b.id,'tub',id));
-    if (reglaze && tearout) flags.push({ sev:'high', msg:`${b.name}: both a reglaze and a tear-out are selected on the tub/shower — that's double-counting. Pick one.` });
+    if (reglaze && tearout) flags.push({ sev:'high', msg:`${b.name}: both a reglaze and a tear-out are selected on the tub/shower - that's double-counting. Pick one.` });
   });
   // deal/estimate mismatch
-  if ((+P.deal.arv) && grandTotal() === 0) flags.push({ sev:'low', msg:'Deal has an ARV but the repair estimate is $0 — the profit number is not yet trustworthy.' });
+  if ((+P.deal.arv) && grandTotal() === 0) flags.push({ sev:'low', msg:'Deal has an ARV but the repair estimate is $0 - the profit number is not yet trustworthy.' });
   if (flags.length === 0) flags.push({ sev:'ok', msg:'No anomalies detected. Quantities and pricing look reasonable.' });
   return flags;
 }
 
 /* ---- RAG-lite assistant: retrieve best KB answer + live estimate facts ---- */
-/* ---- computed (exact) intents — instant, model-free ---- */
+/* ---- computed (exact) intents - instant, model-free ---- */
 function computedAnswer(qRaw){
   const q = qRaw.toLowerCase().trim();
   const pr = progress();
 
-  // greetings / pleasantries — don't let these fall through to a canned scan
+  // greetings / pleasantries - don't let these fall through to a canned scan
   if (/^(hi|hey+|hello|yo|sup|howdy|good (morning|afternoon|evening))\b/.test(q) || /^(thanks|thank you|ty|thx|cool|nice|ok|okay)\b/.test(q))
-    return 'Hey! Ask me about the running total, your biggest cost, what\'s left to review, the deal math, or any repair area — HVAC, roof, foundation, electrical, kitchen, bath, flooring, exterior.';
+    return 'Hey! Ask me about the running total, your biggest cost, what\'s left to review, the deal math, or any repair area - HVAC, roof, foundation, electrical, kitchen, bath, flooring, exterior.';
 
   // running total / cost so far
   if (/\btotal\b|how much|cost so far|running (estimate|total)|what.?s the (estimate|total)/.test(q))
     return `The running repair estimate is ${fmt(grandTotal())} across ${P.rooms.length} rooms (${pr.done}/${pr.total} groups reviewed).`;
 
+  // how many items selected (whole house or a specific room), or what's in a room
+  if (/how many|number of|count|what.?s (in|selected|checked|added)|items? (in|selected|checked|added|so far)|list (the )?items/.test(q)){
+    const itemsIn = (r) => { const a = []; ROOM_TYPES[r.type].groups.forEach(g => groupItemIds(g).forEach(id => { if (isChecked(r.id,g,id)){ const c = P.cells[cellKey(r.id,g,id)]; a.push({ name: itemById(id)?.name, q: c.q, lt: lineTotal(r.id,g,id) }); } })); return a; };
+    const roomType = detectRoomType(q);
+    if (roomType){
+      const rms = P.rooms.filter(r => r.type === roomType);
+      if (!rms.length) return `There's no ${ROOM_TYPES[roomType].label} in this estimate yet.`;
+      return rms.map(r => { const it = itemsIn(r); return it.length
+        ? `${r.name}: ${it.length} item${it.length!==1?'s':''} totalling ${fmt(it.reduce((s,i)=>s+i.lt,0))} - ${it.map(i=>i.name + (i.q>1?` ×${i.q}`:'')).join(', ')}.`
+        : `${r.name}: nothing selected yet.`; }).join(' ');
+    }
+    let total = 0; const per = [];
+    P.rooms.forEach(r => { const n = itemsIn(r).length; total += n; if (n) per.push(`${r.name} (${n})`); });
+    return total ? `${total} item${total!==1?'s':''} selected across the house: ${per.join(', ')}. Total ${fmt(grandTotal())}.` : 'Nothing is selected yet.';
+  }
+
   // what's missing / next  (tightened: no greedy "what.*do" that swallows off-topic questions)
   if (/missing|what.?s left|what.?s next|incomplete|remaining|still (need|to do|to review)|to review|haven.?t (done|reviewed|checked)|what should i (review|check|do) next/.test(q)){
     const cov = agentCoverage().filter(f => f.sev !== 'ok');
-    return cov.length ? 'Coverage check: ' + cov.map(f => f.msg).join(' ') : 'You\'ve reviewed every group — nothing outstanding.';
+    return cov.length ? 'Coverage check: ' + cov.map(f => f.msg).join(' ') : 'You\'ve reviewed every group - nothing outstanding.';
   }
 
   // biggest cost driver
@@ -929,11 +945,11 @@ function computedAnswer(qRaw){
     const d = P.deal, arv=+d.arv||0, pur=+d.purchase||0, rep=grandTotal();
     if (!arv||!pur) return 'Add ARV and purchase price on the Deal tab and I\'ll give you a live profit projection and a GO / CAUTION / NO-GO call.';
     const hold=(+d.weeks||0)*(+d.perWeek||0), sell=arv*((+d.sellPct||0)/100), profit=arv-(pur+rep+hold+sell);
-    const verdict = profit>=25000 ? 'this looks like a GO' : profit>0 ? 'the margin is thin — CAUTION' : 'this is a NO-GO (projected loss)';
+    const verdict = profit>=25000 ? 'this looks like a GO' : profit>0 ? 'the margin is thin - CAUTION' : 'this is a NO-GO (projected loss)';
     return `Projected profit is ${fmt(profit)}, so ${verdict}. (ARV ${fmt(arv)} − purchase ${fmt(pur)} − repairs ${fmt(rep)} − holding ${fmt(hold)} − selling ${fmt(sell)}.) Max Allowable Offer by the 70% rule is ${fmt(arv*0.7-rep)}.`;
   }
 
-  return null; // no computed intent — defer to semantic / keyword retrieval
+  return null; // no computed intent - defer to semantic / keyword retrieval
 }
 
 /* ---- offline KB retrieval: whole-word keyword overlap (instant, model-free) ----
@@ -947,9 +963,9 @@ function keywordKB(qRaw){
   });
   return best ? best.a : null;
 }
-const COPILOT_FALLBACK = 'I don\'t have a confident answer for that — I\'m an offline assistant focused on this walkthrough. I can help with the running total, your biggest cost, what\'s left to review, the deal/profit math, or a repair area like HVAC, roof, foundation, electrical, kitchen, bath, flooring, or exterior.';
+const COPILOT_FALLBACK = 'I don\'t have a confident answer for that - I\'m an offline assistant focused on this walkthrough. I can help with the running total, your biggest cost, what\'s left to review, the deal/profit math, or a repair area like HVAC, roof, foundation, electrical, kitchen, bath, flooring, or exterior.';
 
-/* ---- offline semantic engine — Transformers.js + all-MiniLM-L6-v2 (lazy) ----
+/* ---- offline semantic engine - Transformers.js + all-MiniLM-L6-v2 (lazy) ----
    Upgrades KB retrieval from keyword overlap to on-device sentence embeddings,
    so any phrasing maps to the right guidance. Runs 100% on-device; the model +
    runtime are cached by the service worker, so it works offline after the first
@@ -970,10 +986,10 @@ async function ensureSemantic(){
     SEM.embed = async (t) => Array.from((await SEM.extractor(t, { pooling:'mean', normalize:true })).data);
     SEM.vecs = [];
     for (const e of KB) SEM.vecs.push(await SEM.embed(e.k.join(', ') + '. ' + e.a)); // embed corpus once
-    SEM.state = 'ready';
+    SEM.state = 'ready'; markAIInstalled('sem');
     return true;
   } catch (err) {
-    console.warn('Offline semantic engine unavailable — using keyword retrieval:', err);
+    console.warn('Offline semantic engine unavailable - using keyword retrieval:', err);
     SEM.state = 'failed';
     return false;
   }
@@ -1007,36 +1023,47 @@ function assistantAnswer(q){
   return kw != null ? kw : COPILOT_FALLBACK;
 }
 
-let CHAT = [{ role:'bot', text:'Hi — I\'m your estimate copilot. Ask me about scope, costs, the deal math, or tap an agent above to scan this walkthrough.' }];
+let CHAT = [{ role:'bot', text:'Hi - I\'m your estimate copilot. Ask me about scope, costs, the deal math, or tap an agent above to scan this walkthrough.' }];
 let voiceHintSeen = localStorage.getItem('spark_voicehint') === '1';
 function dismissVoiceHint() { voiceHintSeen = true; localStorage.setItem('spark_voicehint', '1'); }
 
 /* ---- Offline AI pack: download all on-device models while online ---- */
+// remember which models were downloaded - the files live in the browser's
+// permanent transformers-cache, so once installed they never re-download.
+let AI_INSTALLED = j('spark_ai_installed_v1', {});
+function markAIInstalled(k){ if (!AI_INSTALLED[k]){ AI_INSTALLED[k] = true; setLS('spark_ai_installed_v1', AI_INSTALLED); } }
+
 function offlinePackCard(){
-  const dot = s => s==='ready' ? '<span class="text-green-500 font-bold">●</span>'
+  // a model counts as installed if it's loaded now OR was downloaded before
+  const eff = (state, key) => state==='ready' ? 'ready' : state==='loading' ? 'loading' : state==='failed' ? 'failed' : (AI_INSTALLED[key] ? 'saved' : 'idle');
+  const dot = s => (s==='ready'||s==='saved') ? '<span class="text-green-500 font-bold">●</span>'
     : s==='loading' ? '<span class="text-amber-500 font-bold animate-pulse">●</span>'
     : s==='failed' ? '<span class="text-red-400 font-bold">●</span>'
     : '<span class="text-gray-300 font-bold">●</span>';
+  const label = s => s==='ready' ? 'loaded' : s==='saved' ? 'saved on device' : s==='loading' ? 'downloading…' : s==='failed' ? 'retry online' : 'not downloaded';
   const rows = [
-    ['Assistant (semantic answers)', SEM.state],
-    ['Voice (offline speech-to-text)', ASR.state],
-    ['Vision (camera scope detect)', VISION.state]
+    ['Assistant (semantic answers)', eff(SEM.state,'sem')],
+    ['Voice (offline speech-to-text)', eff(ASR.state,'asr')],
+    ['Vision (camera scope detect)', eff(VISION.state,'vision')]
   ];
-  const allReady = rows.every(([,s]) => s === 'ready');
+  const allSaved = rows.every(([,s]) => s==='ready' || s==='saved');
   return `
   <div class="bg-white rounded-2xl p-4 shadow-sm">
     <div class="flex items-center gap-2 mb-1">
       <span class="text-lg">📦</span><span class="font-bold text-[15px]">Offline AI</span>
-      <span class="ml-auto text-[10px] font-bold px-2 py-0.5 rounded-full ${allReady?'bg-green-100 text-green-700':'bg-gray-100 text-gray-500'}">${allReady?'ready offline':'download while online'}</span>
+      <span class="ml-auto text-[10px] font-bold px-2 py-0.5 rounded-full ${allSaved?'bg-green-100 text-green-700':'bg-gray-100 text-gray-500'}">${allSaved?'saved on this device':'download while online'}</span>
     </div>
-    ${rows.map(([l,s]) => `<div class="flex items-center gap-2 py-1 text-[13px] text-gray-600">${dot(s)}<span class="flex-1">${l}</span><span class="text-[11px] text-gray-400">${s==='ready'?'ready':s==='loading'?'downloading…':s==='failed'?'retry online':'not downloaded'}</span></div>`).join('')}
-    ${allReady ? '' : `<button data-act="aipack" class="press w-full mt-2 py-2.5 rounded-xl bg-ink text-white font-bold text-sm">Download AI pack for offline use</button>
-    <p class="text-[10px] text-gray-400 mt-1.5 leading-snug">One-time download (~90 MB total). After this, voice, chat and camera AI all work with zero signal.</p>`}
+    ${rows.map(([l,s]) => `<div class="flex items-center gap-2 py-1 text-[13px] text-gray-600">${dot(s)}<span class="flex-1">${l}</span><span class="text-[11px] text-gray-400">${label(s)}</span></div>`).join('')}
+    ${allSaved
+      ? `<p class="text-[11px] text-green-600 mt-2 font-medium leading-snug">✓ Saved permanently on this device. They load in ~1 second and work with no signal. Closing the app does not remove them.</p>`
+      : `<button data-act="aipack" class="press w-full mt-2 py-2.5 rounded-xl bg-ink text-white font-bold text-sm">Download AI pack for offline use</button>
+    <p class="text-[10px] text-gray-400 mt-1.5 leading-snug">One-time download (~90 MB). Saved permanently on this device; after this, voice, chat and camera AI work with zero signal, no re-download.</p>`}
   </div>`;
 }
 async function downloadAIPack(){
   if (UI.busy) return; UI.busy = true;
-  toast('Downloading AI pack…', 4000);
+  const already = AI_INSTALLED.sem && AI_INSTALLED.asr && AI_INSTALLED.vision;
+  toast(already ? 'Loading saved AI…' : 'Downloading AI pack…', 4000);
   try {
     await ensureSemantic(); render();
     await ensureASR(); render();
@@ -1074,10 +1101,11 @@ function viewCopilot(){
     ${agentCard('🔎','Inspection Coverage','intake + validation', cov)}
 
     <div class="bg-white rounded-2xl p-4 shadow-sm">
-      <div class="flex items-center gap-2 mb-2">
+      <div class="flex items-center gap-2 mb-1">
         <span class="text-lg">💡</span><span class="font-bold text-[15px]">Recommendations</span>
         <span class="ml-auto text-[10px] font-bold px-2 py-0.5 rounded-full bg-gray-100 text-gray-500">${rec.length} suggestion${rec.length!==1?'s':''}</span>
       </div>
+      <p class="text-[11px] text-gray-400 mb-2 leading-snug">Paired work triggered by items you already added, not by guessing the house condition. Each says why.</p>
       ${rec.length === 0 ? `<p class="text-[13px] text-gray-400 py-1">No suggestions right now. Add some repairs and I\'ll spot commonly-paired work.</p>`
         : rec.map(r => `<div class="flex items-center gap-2 py-2 border-b border-gray-50 last:border-0">
             <div class="flex-1 min-w-0"><div class="text-[13px] font-semibold">${esc(r.title)} <span class="text-gray-400 font-normal">· ${fmt2(priceOf(r.target.id))}/${esc(itemById(r.target.id).unit)}</span></div>
@@ -1106,7 +1134,7 @@ function viewCopilot(){
       ${voiceHintSeen ? '' : `<div class="px-3 pb-3 -mt-1">
         <div class="flex items-start gap-2 text-[11px] text-gray-500 bg-gray-50 rounded-lg px-2.5 py-1.5">
           <span class="flex-shrink-0">🎙️</span>
-          <span class="flex-1 leading-snug">Voice needs microphone permission and a connection — tap “Allow” when asked.</span>
+          <span class="flex-1 leading-snug">Voice needs microphone permission and a connection - tap “Allow” when asked.</span>
           <button data-act="dismissvoicehint" class="press flex-shrink-0 text-gray-400 font-bold px-1 -mt-0.5" title="Dismiss">×</button>
         </div>
       </div>`}
@@ -1213,7 +1241,7 @@ function modalProjects() {
 function modalAddRoom() {
   modal(`<div class="px-5 pb-8 pt-2">
     <h3 class="font-bold text-lg mb-1">Add a room</h3>
-    <p class="text-[12px] text-gray-400 mb-3">Every house is different — build the structure that matches this one.</p>
+    <p class="text-[12px] text-gray-400 mb-3">Every house is different - build the structure that matches this one.</p>
     <div class="grid grid-cols-2 gap-2.5">
       ${ADDABLE.map(t => { const r = ROOM_TYPES[t];
         const exists = r.single && P.rooms.some(x=>x.type===t);
@@ -1476,7 +1504,7 @@ async function modalShare(){
   const url = shareUrl(P); window.__shareUrl = url;
   const linkEl = document.getElementById('shareLink'); if (linkEl) linkEl.value = url;
   const note = document.getElementById('shareNote'); if (note) note.textContent = (url.length/1024).toFixed(1) + ' KB link';
-  // Step 2: the QR is a bonus — if it fails, the link above still works.
+  // Step 2: the QR is a bonus - if it fails, the link above still works.
   try {
     await ensureQR();
     const qr = qrcode(0, 'L'); qr.addData(url); qr.make();
@@ -1486,7 +1514,7 @@ async function modalShare(){
       if (img) { img.removeAttribute('width'); img.removeAttribute('height'); img.style.cssText = 'width:220px;height:220px;image-rendering:pixelated;border-radius:8px'; img.alt = 'estimate QR code'; }
     }
   } catch (e) {
-    if (box()) box().innerHTML = '<span class="text-gray-400 text-sm px-6">QR unavailable here — use the link below.</span>';
+    if (box()) box().innerHTML = '<span class="text-gray-400 text-sm px-6">QR unavailable here - use the link below.</span>';
   }
 }
 
@@ -1591,8 +1619,8 @@ function modalCompare(){
           </div>
           <div class="grid grid-cols-3 gap-1 mt-2 text-center">
             <div><div class="text-[10px] text-gray-400">Repairs</div><div class="font-semibold text-[13px]">${fmt(r.repairs)}</div></div>
-            <div><div class="text-[10px] text-gray-400">Profit</div><div class="font-semibold text-[13px] ${r.hasDeal ? (r.profit>0?'text-green-600':'text-red-500') : 'text-gray-300'}">${r.hasDeal ? fmt(r.profit) : '—'}</div></div>
-            <div><div class="text-[10px] text-gray-400">Return</div><div class="font-semibold text-[13px] ${r.hasDeal ? '' : 'text-gray-300'}">${r.hasDeal ? r.roi.toFixed(0)+'%' : '—'}</div></div>
+            <div><div class="text-[10px] text-gray-400">Profit</div><div class="font-semibold text-[13px] ${r.hasDeal ? (r.profit>0?'text-green-600':'text-red-500') : 'text-gray-300'}">${r.hasDeal ? fmt(r.profit) : '-'}</div></div>
+            <div><div class="text-[10px] text-gray-400">Return</div><div class="font-semibold text-[13px] ${r.hasDeal ? '' : 'text-gray-300'}">${r.hasDeal ? r.roi.toFixed(0)+'%' : '-'}</div></div>
           </div>
         </button>`).join('')}
     </div>
@@ -1725,7 +1753,7 @@ async function sendChat() {
   const el = document.getElementById('chatin'); if (!el) return;
   const q = el.value.trim(); if (!q) return;
   CHAT.push({ role: 'user', text: q });
-  // typing placeholder — note the one-time model warm-up the first time it's needed
+  // typing placeholder - note the one-time model warm-up the first time it's needed
   const warming = SEM.state === 'idle' && computedAnswer(q) == null;
   CHAT.push({ role: 'bot', text: warming ? 'Warming up the offline AI (one-time download)…' : 'Thinking…', _typing: true });
   if (CHAT.length > 40) CHAT = CHAT.slice(-40);
@@ -1743,7 +1771,7 @@ async function sendChat() {
 let _rec = null;
 function voiceInput(targetId) {
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-  if (!SR) { toast('Voice input isn\'t supported in this browser — try Chrome, or just type.', 4500); return; }
+  if (!SR) { toast('Voice input isn\'t supported in this browser - try Chrome, or just type.', 4500); return; }
   if (_rec) { try { _rec.stop(); } catch (e) {} _rec = null; return; } // tap again while listening → stop
   const rec = new SR(); _rec = rec;
   rec.lang = 'en-US'; rec.interimResults = true; rec.maxAlternatives = 1;
@@ -1772,15 +1800,15 @@ function voiceInput(targetId) {
     const msg = {
       'not-allowed': 'Microphone blocked. Tap the lock / “aA” icon in the address bar → allow Microphone, then retry.',
       'service-not-allowed': 'Microphone blocked. Allow mic access in your browser settings, then retry.',
-      'no-speech': 'Didn\'t catch anything — tap the mic and speak clearly.',
+      'no-speech': 'Didn\'t catch anything - tap the mic and speak clearly.',
       'audio-capture': 'No microphone found on this device.',
-      'network': 'Voice needs a connection — speech is processed online.',
+      'network': 'Voice needs a connection - speech is processed online.',
       'aborted': ''
-    }[e.error] || 'Voice input failed — type your question instead.';
+    }[e.error] || 'Voice input failed - type your question instead.';
     if (msg) toast(msg, 5000);
   };
   rec.onend = () => { listening(false); _rec = null; };
-  try { rec.start(); } catch (e) { listening(false); _rec = null; toast('Voice unavailable — type instead.', 3000); }
+  try { rec.start(); } catch (e) { listening(false); _rec = null; toast('Voice unavailable - type instead.', 3000); }
 }
 function handleModal(e) {
   const el = e.currentTarget; const m = el.dataset.m; const d = el.dataset;
@@ -1886,7 +1914,7 @@ function addPhotos(files) {
     const reader = new FileReader();
     reader.onload = () => {
       compress(reader.result, 1280, 0.7).then(data => {
-        if (!setLS('__probe__', data.length)) { toast('Storage full — delete some photos first', 4000); done(); return; }
+        if (!setLS('__probe__', data.length)) { toast('Storage full - delete some photos first', 4000); done(); return; }
         localStorage.removeItem('__probe__');
         P.photos.push({ id: 'ph' + Date.now().toString(36) + Math.random().toString(36).slice(2,5), data, caption: '', serial: '' });
         added++; done();
@@ -1937,13 +1965,13 @@ const VISION_LABELS = [
   { prompt:'a ceiling light fixture',              item:'ig-22', room:'interior', group:'lighting' },
   { prompt:'a garage door',                        item:'ex-21', room:'exterior', group:'garage' },
   { prompt:'a wooden privacy fence',               item:'ex-03', room:'exterior', group:'fence' },
-  // defects (coarse — gated hard below)
+  // defects (coarse - gated hard below)
   { prompt:'old worn or stained carpet that needs replacing', item:'ig-06', room:'interior', group:'flooring' },
   { prompt:'cracked or damaged wall or floor tile',item:'ba-05', room:'bathroom', group:'btile' },
   { prompt:'a water stained or water damaged ceiling', item:'ig-08', room:'interior', group:'paint' },
   { prompt:'peeling or damaged exterior paint',    item:'ex-07', room:'exterior', group:'siding' },
   { prompt:'worn or damaged kitchen cabinets',     item:'kt-05', room:'kitchen',  group:'cabinets' },
-  // decoys — correct "no action" / irrelevant classes (item:null)
+  // decoys - correct "no action" / irrelevant classes (item:null)
   { prompt:'a clean hardwood wood floor in good condition', item:null },
   { prompt:'a clean tile floor in good condition',          item:null },
   { prompt:'a luxury vinyl plank floor in good condition',  item:null },
@@ -1967,7 +1995,7 @@ async function ensureVision(){
     const mod = await import('https://cdn.jsdelivr.net/npm/@xenova/transformers@2.17.2');
     mod.env.allowLocalModels = false;
     VISION.clf = await mod.pipeline('zero-shot-image-classification', 'Xenova/clip-vit-base-patch32');
-    VISION.state = 'ready';
+    VISION.state = 'ready'; markAIInstalled('vision');
     return true;
   } catch (err) {
     console.warn('On-device vision unavailable:', err);
@@ -1992,7 +2020,7 @@ async function suggestScopeOffline(dataUrl){
   const res = await VISION.clf(dataUrl, labels); // sorted desc by score
   const ranked = res.map(r => ({ ...VISION_LABELS[labels.indexOf(r.label)], score: r.score }));
   // Gate 1: if the single most likely label is a decoy (good condition /
-  // irrelevant), the scene needs no action — suggest nothing.
+  // irrelevant), the scene needs no action - suggest nothing.
   if (!ranked[0] || !ranked[0].item) return { suggestions: [] };
   // Gate 2: surface only actionable labels clearly above the floor (max 2).
   const out = ranked.filter(r => r.item && itemById(r.item) && r.score >= FLOOR).slice(0, 2);
@@ -2059,7 +2087,7 @@ const SYNONYMS = { ac:'condensing', air:'condensing', conditioner:'condensing', 
   plug:'outlets', plugs:'outlets', outlet:'outlets', socket:'outlets', breaker:'panel', rewire:'rewire',
   gutters:'guttering', gutter:'guttering', roofing:'roof', faucet:'sink', countertop:'granite', counters:'granite', counter:'granite',
   lights:'light', lighting:'light', cabinet:'cabinets', flooring:'floor', floors:'floor', windows:'window', doors:'door' };
-/* instant keyword match against item names — works with no model, no network */
+/* instant keyword match against item names - works with no model, no network */
 function matchItemFromText(t){
   const words = (t.toLowerCase().match(/[a-z]+/g) || []).filter(w => w.length > 2 && !STOP.has(w));
   if (!words.length) return null;
@@ -2177,7 +2205,7 @@ async function ensureASR(){
     const mod = await import('https://cdn.jsdelivr.net/npm/@xenova/transformers@2.17.2');
     mod.env.allowLocalModels = false;
     ASR.pipe = await mod.pipeline('automatic-speech-recognition', 'Xenova/whisper-tiny.en');
-    ASR.state = 'ready';
+    ASR.state = 'ready'; markAIInstalled('asr');
     return true;
   } catch (e) { console.warn('Offline ASR unavailable:', e); ASR.state = 'failed'; return false; }
 }
@@ -2347,7 +2375,7 @@ function startVoiceWalk(){
 /* ---------- live video capture (camera walkthrough → grab frames) ---------- */
 let _liveStream = null;
 async function startLive() {
-  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) { toast('Camera not available — use Photo / upload'); return; }
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) { toast('Camera not available - use Photo / upload'); return; }
   const ov = document.createElement('div');
   ov.id = 'liveOverlay';
   ov.className = 'fixed inset-0 z-[70] bg-black flex flex-col';
@@ -2373,10 +2401,10 @@ async function startLive() {
     const msg = n === 'NotAllowedError' || n === 'SecurityError'
         ? 'Camera blocked. Tap the lock / “aA” icon in the address bar → allow Camera, then retry. Use the https link, not an embedded preview.'
       : (n === 'NotFoundError' || n === 'DevicesNotFoundError' || n === 'OverconstrainedError')
-        ? 'No usable camera found — use “Photo / upload” instead.'
+        ? 'No usable camera found - use “Photo / upload” instead.'
       : n === 'NotReadableError'
         ? 'Camera is in use by another app. Close it and retry.'
-        : 'Could not start the camera — use “Photo / upload” instead.';
+        : 'Could not start the camera - use “Photo / upload” instead.';
     toast(msg, 6000);
     return;
   }
@@ -2423,7 +2451,7 @@ async function startLive() {
     const out = await suggestScope(c.toDataURL('image/jpeg', 0.85));
     det.textContent = '✨ Detect';
     if (out.error) { toast('Detector unavailable offline (needs first online load)', 4000); return; }
-    if (!out.suggestions.length) { renderSugg([]); toast('Nothing recognized — move closer or steadier', 3500); return; }
+    if (!out.suggestions.length) { renderSugg([]); toast('Nothing recognized - move closer or steadier', 3500); return; }
     renderSugg(out.suggestions);
   };
 }
@@ -2486,9 +2514,9 @@ async function doExport() {
   try {
     const wb = XLSX.utils.book_new();
     const rows = [
-      ['SPARK EQUITY GROUP — REPAIR ESTIMATE'],
+      ['SPARK EQUITY GROUP - REPAIR ESTIMATE'],
       ['Project', P.name],
-      ['Address', P.address || '—'],
+      ['Address', P.address || '-'],
       ['Date', new Date().toLocaleString()],
       [],
       ['Room', 'Section', 'Group', 'Item', 'Qty', 'Unit', 'Unit Cost', 'Line Total']
