@@ -211,7 +211,7 @@ const LS = {
 const j = (k, fb) => { try { return JSON.parse(localStorage.getItem(k)) ?? fb; } catch { return fb; } };
 const setLS = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); return true; } catch { return false; } };
 
-const APP_VERSION = 'v24';
+const APP_VERSION = 'v25';
 
 /* ---- PIN lock: SHA-256 hashed PIN + one-time recovery code ---- */
 let LOCK = j('spark_lock_v1', null); // { pinHash, recHash }
@@ -1146,8 +1146,9 @@ function renderHome() {
       <p class="text-gray-400 text-sm mt-1">Walk the property. Check the repairs. Know the number before you offer.</p>
     </header>
     <div class="flex-1 px-4 py-5 -mt-3 bg-[#f1f3f6] rounded-t-3xl">
-      <button data-act="new" class="press w-full py-4 mb-5 bg-spark text-white rounded-2xl font-bold text-lg shadow-lg shadow-spark/30">+ New Estimate</button>
-      ${projects.length === 0 ? `<p class="text-center text-gray-400 text-sm py-10">No saved estimates yet.<br/>Start your first walkthrough above.</p>` : `
+      <button data-act="new" class="press w-full py-4 mb-2.5 bg-spark text-white rounded-2xl font-bold text-lg shadow-lg shadow-spark/30">+ New Estimate</button>
+      <button data-act="demo" class="press w-full py-3 mb-5 border-2 border-dashed border-spark-300 text-spark-700 rounded-2xl font-bold">✨ Load demo property (see it in action)</button>
+      ${projects.length === 0 ? `<p class="text-center text-gray-400 text-sm py-8">No saved estimates yet.<br/>Start a walkthrough, or tap the demo above.</p>` : `
         <div class="flex items-center justify-between mb-2">
           <div class="text-[12px] font-semibold text-gray-400 uppercase">Saved estimates (${projects.length})</div>
           ${projects.length > 1 ? `<button data-act="compare" class="press text-[12px] font-bold text-spark">⚖ Compare</button>` : ''}
@@ -1389,6 +1390,44 @@ function createEstimate(addr) {
   P = blankProject(a || ('Estimate ' + (projects.length + 1)));
   P.address = a;
   save(); closeModal(); render();
+}
+
+/* Seed a fully-worked demo estimate so a first-time judge sees the app at
+   its best in one tap (rooms filled, a photo, a GO deal). */
+function loadDemo(){
+  const p = blankProject('742 Maple Ave, Dallas TX');
+  p.address = '742 Maple Ave, Dallas TX';
+  addRoom(p, 'bathroom', true);   // second bath
+  addRoom(p, 'bedroom', true);
+  addRoom(p, 'living', true);
+  const set = (type, gid, id, q, inst) => {
+    const rs = p.rooms.filter(r => r.type === type); const r = rs[inst || 0];
+    if (r) p.cells[cellKey(r.id, gid, id)] = { q };
+  };
+  set('interior','flooring','ig-05',1250); set('interior','paint','ig-07',2400);
+  set('interior','doors','ig-10',6); set('interior','lighting','ig-22',18);
+  set('interior','general','ig-19',320); set('interior','general','ig-26',2); set('interior','general','ig-27',1);
+  set('kitchen','cabinets','kt-05',1); set('kitchen','kcounters','kt-06',24);
+  set('kitchen','appliances','kt-13',1); set('kitchen','appliances','kt-16',1); set('kitchen','appliances','kt-17',1);
+  set('bathroom','vanity','ba-04',1,0); set('bathroom','vanity','ba-03',1,0); set('bathroom','tub','ba-08',1,0); set('bathroom','btile','ba-05',90,0);
+  set('bathroom','vanity','ba-04',1,1); set('bathroom','tub','ba-13',1,1);
+  set('bedroom','flooring','ig-06',180); set('bedroom','paint','ig-07',600);
+  set('living','flooring','ig-05',420); set('living','lighting','ig-22',6);
+  set('systems','hvac','as-01',1); set('systems','hvac','as-06',1); set('systems','plumbing','as-08',1);
+  set('systems','electrical','as-11',1); set('systems','structural','as-16',1);
+  set('exterior','siding','ex-07',1600); set('exterior','windows','ex-14',8); set('exterior','garage','ex-21',1); set('exterior','fence','ex-03',120);
+  const ext = p.rooms.find(r => r.type === 'exterior'); if (ext) p.nan[nanKey(ext.id, 'trees')] = true;
+  p.deal = { arv:'289000', purchase:'158000', weeks:9, perWeek:375, sellPct:8 };
+  try {
+    const c = document.createElement('canvas'); c.width=400; c.height=300; const x=c.getContext('2d');
+    x.fillStyle='#334155'; x.fillRect(0,0,400,300);
+    x.fillStyle='#e2e8f0'; x.font='bold 20px sans-serif'; x.fillText('FURNACE DATA PLATE',55,90);
+    x.font='14px monospace'; x.fillText('MODEL: GMS80703BN',55,140); x.fillText('SERIAL: 1809XY44821',55,170);
+    p.photos = [{ id:'phdemo', data:c.toDataURL('image/jpeg',0.75), caption:'Furnace data plate', serial:'1809XY44821' }];
+  } catch(e){}
+  projects.unshift(p); P = p; UI.tab = 'estimate'; UI.roomId = p.rooms[0].id;
+  save(); closeModal(); render();
+  toast('Demo property loaded. Explore every tab.', 3500);
 }
 
 /* =========================================================
@@ -1669,6 +1708,7 @@ function handle(e) {
     case 'dark': toggleDark(); break;
     case 'aipack': downloadAIPack(); break;
     case 'settings': modalSettings(); break;
+    case 'demo': loadDemo(); break;
     case 'compare': modalCompare(); break;
     case 'share': modalShare(); break;
     case 'report': clientReport(); break;
