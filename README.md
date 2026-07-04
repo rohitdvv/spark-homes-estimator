@@ -1,11 +1,34 @@
 # Spark Homes — Repair Cost Estimator
 
-A mobile-first, offline-first **Progressive Web App** for Spark Homes acquisition
-agents. Walk a property room by room, check off needed repairs, capture photos,
-and export a complete cost breakdown — all on a phone, with no signal required.
+**Live app:** https://rohitdvv.github.io/spark-homes-estimator/
+**60-second tour:** open the link, tap **"✨ Load demo property"**, then swipe
+through Estimate → Photos → Copilot → Deal → Export.
 
-Built for the Spark Homes developer contest. Single self-contained app, no build
-step, no server.
+A field tool for real-estate acquisition agents that does the whole job on a
+phone with **zero signal**: walk a property room by room, capture the scope by
+**voice or camera**, get an instant **buy/walk verdict**, and hand a client-ready
+report or Excel to the office. One self-contained HTML file. No build, no server,
+no backend, no API keys.
+
+### Why this stands out
+
+Most repair estimators are a checklist with a total. This is a full field
+product with an AI layer that runs **entirely on the device**:
+
+| # | Capability | Why it matters |
+|---|---|---|
+| 1 | **Offline-first PWA** | Installs to the home screen, works in a dead-zone basement, all data on-device |
+| 2 | **Hands-free voice walkthrough** | Narrate repairs ("kitchen, cabinets, five doors"); on-device speech + matching fill the estimate, quantities and all |
+| 3 | **On-device Whisper STT** | Real speech-to-text with no network, so voice works truly offline |
+| 4 | **Camera scope detection** | Point at a fixture; on-device CLIP suggests the line item to add |
+| 5 | **Offline semantic Copilot** | Chat + specialist agents (coverage, recommendations, anomaly) over the live estimate, no cloud |
+| 6 | **Deal Analyzer** | Live profit, ROI gauge, 70%-rule max offer, GO/CAUTION/NO-GO verdict |
+| 7 | **Backendless handoff** | Share a full estimate phone-to-phone via QR/link with no server |
+| 8 | **PIN lock + client report + real-address GPS** | Enterprise touches: app lock with recovery code, print-ready PDF, GPS address capture |
+
+Everything works offline after one load; the AI models are bundled on demand via
+a one-tap **"Offline AI pack"** so an agent can prep on Wi-Fi then walk a
+no-signal property.
 
 ---
 
