@@ -126,6 +126,8 @@
       left:50% !important; right:auto !important; width:100%; max-width:28rem; transform:translateX(-50%);
     }
   }
+  @media (min-width: 768px){ #voiceWalk, #reportOverlay, #liveOverlay { max-width:48rem; } }
+  @media (min-width: 1024px){ #voiceWalk, #reportOverlay, #liveOverlay { max-width:64rem; } }
   /* iOS-style theme switch */
   .themesw { display:inline-flex; align-items:center; width:46px; height:26px; border-radius:999px;
     background:#cbd5e1; position:relative; flex-shrink:0; vertical-align:middle; transition:background-color .3s ease; }
@@ -141,7 +143,7 @@
 <body class="select-none">
 
 <!-- ===================== APP ROOT ===================== -->
-<div id="app" class="max-w-md mx-auto min-h-screen flex flex-col bg-[#f1f3f6] shadow-xl"></div>
+<div id="app" class="w-full max-w-md md:max-w-3xl lg:max-w-5xl mx-auto min-h-screen flex flex-col bg-[#f1f3f6] shadow-xl"></div>
 
 <!-- Toast -->
 <div id="toast" class="fixed left-1/2 bottom-24 z-[60] hidden"></div>
@@ -218,7 +220,7 @@ const LS = {
 const j = (k, fb) => { try { return JSON.parse(localStorage.getItem(k)) ?? fb; } catch { return fb; } };
 const setLS = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); return true; } catch { return false; } };
 
-const APP_VERSION = 'v33';
+const APP_VERSION = 'v34';
 let AGENT = j('spark_agent_v1', '');
 function setAgent(n){ AGENT = (n || '').trim(); setLS('spark_agent_v1', AGENT); }
 
@@ -454,7 +456,7 @@ function roomBodyHTML(room){
           ${!ROOM_TYPES[room.type].single
             ? `<button data-act="delroom" data-id="${room.id}" class="press text-[12px] text-red-500 font-semibold">Remove room</button>` : ''}
         </div>
-        ${ROOM_TYPES[room.type].groups.map(g => groupCard(room.id, g)).join('')}
+        <div class="md:columns-2 md:gap-x-3">${ROOM_TYPES[room.type].groups.map(g => groupCard(room.id, g)).join('')}</div>
       </div>`;
 }
 
@@ -491,7 +493,7 @@ function groupCard(roomId, gid) {
   const gt = groupTotal(roomId, gid);
   const complete = groupComplete(roomId, gid);
   return `
-  <div class="bg-white rounded-2xl mb-2.5 overflow-hidden shadow-sm ${checked>0?'checked-glow':''}">
+  <div class="bg-white rounded-2xl mb-2.5 overflow-hidden shadow-sm break-inside-avoid ${checked>0?'checked-glow':''}">
     <button data-act="grp" data-k="${nanKey(roomId, gid)}" class="press w-full flex items-center gap-2 px-4 py-3.5 text-left">
       <span class="w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0 ${complete?'bg-spark text-white':'bg-gray-200 text-transparent'}">
         <svg width="12" height="12" viewBox="0 0 24 24" fill="none"><path d="M5 13l4 4L19 7" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg>
@@ -1188,7 +1190,7 @@ function bottomNav() {
       <span class="navpill ${UI.tab===tab?'on':''}">${icon}</span><span class="text-[10px] font-semibold">${label}</span>
     </button>`;
   return `
-  <nav class="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-md bg-white border-t border-gray-200 flex items-end z-40" style="padding-bottom:env(safe-area-inset-bottom)">
+  <nav class="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-md md:max-w-3xl lg:max-w-5xl bg-white border-t border-gray-200 flex items-end z-40" style="padding-bottom:env(safe-area-inset-bottom)">
     ${item('estimate','Estimate','<svg width="22" height="22" viewBox="0 0 24 24" fill="none"><path d="M9 7h6M9 11h6M9 15h4M6 3h12a1 1 0 011 1v16a1 1 0 01-1 1H6a1 1 0 01-1-1V4a1 1 0 011-1z" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>')}
     ${item('photos','Photos','<svg width="22" height="22" viewBox="0 0 24 24" fill="none"><path d="M3 7a2 2 0 012-2h2l1.5-2h7L18 5h1a2 2 0 012 2v11a2 2 0 01-2 2H5a2 2 0 01-2-2V7z" stroke="currentColor" stroke-width="1.8"/><circle cx="12" cy="12.5" r="3.5" stroke="currentColor" stroke-width="1.8"/></svg>')}
     <button data-act="tab" data-tab="copilot" class="press flex-1 flex flex-col items-center relative" style="margin-top:-22px">
@@ -1276,7 +1278,7 @@ function renderHome() {
           <div class="text-[12px] font-bold text-gray-400 uppercase tracking-wide">Estimates (${projects.length})</div>
           ${projects.length > 1 ? `<button data-act="compare" class="press text-[12px] font-bold text-spark">⚖ Compare</button>` : ''}
         </div>
-        <div class="space-y-2.5">
+        <div class="space-y-2.5 md:space-y-0 md:grid md:grid-cols-2 md:gap-3">
           ${stats.map(({p, rep, pr, verdict, vc, pct}) => `
             <div class="bg-white rounded-2xl p-4 shadow-sm pop">
               <div class="flex items-start gap-3">
@@ -1314,7 +1316,7 @@ function modal(html) {
   $modal.classList.remove('hidden');
   $modal.innerHTML = `
   <div class="sheet-back fixed inset-0 bg-black/40 z-50 flex items-end justify-center" data-act="backdrop">
-    <div class="sheet bg-white w-full max-w-md rounded-t-3xl max-h-[88vh] overflow-y-auto" onclick="event.stopPropagation()">
+    <div class="sheet bg-white w-full max-w-md md:max-w-xl rounded-t-3xl max-h-[88vh] overflow-y-auto" onclick="event.stopPropagation()">
       <div class="sticky top-0 bg-white pt-3 pb-1 flex justify-center"><div class="w-10 h-1 bg-gray-300 rounded-full"></div></div>
       ${html}
     </div>
