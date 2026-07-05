@@ -119,6 +119,13 @@
   .lockdot.on { background:var(--spark); }
   .shake { animation:shake .4s ease; }
   @keyframes shake { 0%,100%{transform:translateX(0)} 25%{transform:translateX(-8px)} 75%{transform:translateX(8px)} }
+  /* On tablet/desktop the app is a centered phone-width column; keep the
+     full-screen overlays aligned to that same column instead of the viewport. */
+  @media (min-width: 480px){
+    #voiceWalk, #reportOverlay, #liveOverlay {
+      left:50% !important; right:auto !important; width:100%; max-width:28rem; transform:translateX(-50%);
+    }
+  }
   /* iOS-style theme switch */
   .themesw { display:inline-flex; align-items:center; width:46px; height:26px; border-radius:999px;
     background:#cbd5e1; position:relative; flex-shrink:0; vertical-align:middle; transition:background-color .3s ease; }
@@ -211,7 +218,7 @@ const LS = {
 const j = (k, fb) => { try { return JSON.parse(localStorage.getItem(k)) ?? fb; } catch { return fb; } };
 const setLS = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); return true; } catch { return false; } };
 
-const APP_VERSION = 'v32';
+const APP_VERSION = 'v33';
 let AGENT = j('spark_agent_v1', '');
 function setAgent(n){ AGENT = (n || '').trim(); setLS('spark_agent_v1', AGENT); }
 
