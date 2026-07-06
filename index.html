@@ -122,12 +122,12 @@
   /* On tablet/desktop the app is a centered phone-width column; keep the
      full-screen overlays aligned to that same column instead of the viewport. */
   @media (min-width: 480px){
-    #voiceWalk, #reportOverlay, #liveOverlay {
+    #voiceWalk, #reportOverlay, #liveOverlay, #photoLightbox {
       left:50% !important; right:auto !important; width:100%; max-width:28rem; transform:translateX(-50%);
     }
   }
-  @media (min-width: 768px){ #voiceWalk, #reportOverlay, #liveOverlay { max-width:48rem; } }
-  @media (min-width: 1024px){ #voiceWalk, #reportOverlay, #liveOverlay { max-width:64rem; } }
+  @media (min-width: 768px){ #voiceWalk, #reportOverlay, #liveOverlay, #photoLightbox { max-width:48rem; } }
+  @media (min-width: 1024px){ #voiceWalk, #reportOverlay, #liveOverlay, #photoLightbox { max-width:64rem; } }
   /* iOS-style theme switch */
   .themesw { display:inline-flex; align-items:center; width:46px; height:26px; border-radius:999px;
     background:#cbd5e1; position:relative; flex-shrink:0; vertical-align:middle; transition:background-color .3s ease; }
@@ -220,7 +220,7 @@ const LS = {
 const j = (k, fb) => { try { return JSON.parse(localStorage.getItem(k)) ?? fb; } catch { return fb; } };
 const setLS = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); return true; } catch { return false; } };
 
-const APP_VERSION = 'v34';
+const APP_VERSION = 'v35';
 let AGENT = j('spark_agent_v1', '');
 function setAgent(n){ AGENT = (n || '').trim(); setLS('spark_agent_v1', AGENT); }
 
@@ -577,15 +577,25 @@ function viewPhotos() {
       <div class="grid grid-cols-2 gap-3">
         ${P.photos.map(ph => `
           <div class="bg-white rounded-2xl overflow-hidden shadow-sm pop">
-            <img src="${ph.data}" class="w-full h-32 object-cover" />
+            <button data-act="viewphoto" data-id="${ph.id}" class="press block w-full relative">
+              <img src="${ph.data}" class="w-full h-32 object-cover" />
+              <span class="absolute bottom-1 right-1 bg-black/50 text-white text-[9px] font-semibold px-1.5 py-0.5 rounded">tap to view</span>
+            </button>
             <div class="p-2.5">
               <div class="flex items-center gap-1 mb-1">
                 <input id="cap_${ph.id}" data-act="cap" data-id="${ph.id}" value="${esc(ph.caption||'')}" placeholder="Caption…" class="flex-1 min-w-0 text-[12px] font-medium border-b border-gray-100 pb-1 outline-none" />
                 <button data-act="capmic" data-id="${ph.id}" class="press text-[13px] flex-shrink-0" title="Dictate caption">🎙️</button>
               </div>
-              ${ph.serial ? `<div class="text-[11px] text-spark font-bold break-all">SN: ${esc(ph.serial)}</div>` : ''}
+              ${ph.serial != null ? `
+                <div class="flex items-center gap-1 mt-1">
+                  <span class="text-[10px] text-gray-400 font-bold flex-shrink-0">SN</span>
+                  <input data-act="serialedit" data-id="${ph.id}" value="${esc(ph.serial === '(none found)' ? '' : ph.serial)}" placeholder="type or pick serial" class="flex-1 min-w-0 text-[11px] text-spark font-bold break-all border-b border-gray-100 outline-none pb-0.5" />
+                </div>
+                ${ph.model ? `<div class="text-[10px] text-gray-400 mt-0.5 break-all">Model: ${esc(ph.model)}</div>` : ''}
+                ${ph.candidates && ph.candidates.length > 1 ? `<div class="flex flex-wrap gap-1 mt-1">${ph.candidates.map(c => `<button data-act="serialpick" data-id="${ph.id}" data-v="${esc(c)}" class="press text-[9px] bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded font-semibold">${esc(c)}</button>`).join('')}</div>` : ''}
+              ` : ''}
               <div class="flex gap-1.5 mt-1.5">
-                <button data-act="ocr" data-id="${ph.id}" class="press flex-1 text-[11px] font-semibold bg-gray-100 rounded-lg py-1.5">${ph.serial?'Re-scan':'Scan serial #'}</button>
+                <button data-act="ocr" data-id="${ph.id}" class="press flex-1 text-[11px] font-semibold bg-gray-100 rounded-lg py-1.5">${ph.serial != null ? 'Re-scan' : 'Scan serial #'}</button>
                 <button data-act="delphoto" data-id="${ph.id}" class="press text-[11px] font-semibold bg-red-50 text-red-500 rounded-lg py-1.5 px-2.5">Delete</button>
               </div>
             </div>
@@ -1792,7 +1802,7 @@ function on(act, fn) { return el => el.addEventListener(act === 'input' ? 'input
 function bind() {
   $app.querySelectorAll('[data-act]').forEach(el => {
     const a = el.dataset.act;
-    if (a === 'qtyin' || a === 'cap') {
+    if (a === 'qtyin' || a === 'cap' || a === 'serialedit') {
       el.addEventListener('change', handle);
       el.addEventListener('click', e => e.stopPropagation());
     } else if (a === 'deal') {
@@ -1835,6 +1845,9 @@ function handle(e) {
     case 'capmic': voiceInput('cap_' + d.id); break;
     case 'cap': setCaption(d.id, el.value); break;
     case 'ocr': runOCR(d.id); break;
+    case 'viewphoto': viewPhoto(d.id); break;
+    case 'serialedit': setPhotoSerial(d.id, el.value); break;
+    case 'serialpick': setPhotoSerial(d.id, d.v); render(); break;
     case 'delphoto': delPhoto(d.id); break;
     case 'deal': P.deal[d.k] = el.value; saveSoon(); softUpdateDeal(); break;
     case 'export': doExport(); break;
@@ -2598,27 +2611,56 @@ function loadTesseract() {
     s.onload = res; s.onerror = rej; document.head.appendChild(s);
   });
 }
+/* Parse a serial from OCR text. Serial-specific labels win; the MODEL number is
+   captured separately so it is never mistaken for the serial. */
+function parseSerial(text){
+  const serialLbl = text.match(/(?:SERIAL\s*(?:NO|NUMBER|#)?|S\s*\/\s*N|\bSN\b|SER\.?)\s*[:#.\-]?\s*([A-Z0-9][A-Z0-9\-]{4,})/);
+  const modelLbl  = text.match(/(?:MODEL\s*(?:NO|NUMBER|#)?|MOD\.?|M\s*\/\s*N)\s*[:#.\-]?\s*([A-Z0-9][A-Z0-9\-]{3,})/);
+  // candidate tokens: mixed letters+digits, length >= 6 (typical of serials)
+  const toks = [...new Set((text.replace(/[^A-Z0-9\s\-]/g, ' ').split(/\s+/))
+    .filter(t => t.length >= 6 && /[0-9]/.test(t) && /[A-Z]/.test(t)))].sort((a,b)=>b.length-a.length);
+  const model = modelLbl ? modelLbl[1] : '';
+  let serial = serialLbl ? serialLbl[1] : (toks.find(t => t !== model) || toks[0] || '');
+  return { serial, model, candidates: toks.slice(0, 6) };
+}
 async function runOCR(id) {
   const ph = P.photos.find(p => p.id === id); if (!ph) return;
   toast('Scanning… (first scan downloads OCR engine)');
   try {
     await loadTesseract();
     const { data } = await Tesseract.recognize(ph.data, 'eng');
-    const text = (data.text || '').toUpperCase();
-    // serial heuristics: labelled serial, else longest alphanumeric token
-    let serial = '';
-    const lbl = text.match(/(?:SERIAL|SER|S\/N|SN|MODEL|MFG)[^A-Z0-9]{0,4}([A-Z0-9][A-Z0-9\-]{4,})/);
-    if (lbl) serial = lbl[1];
-    else {
-      const toks = text.replace(/[^A-Z0-9\s\-]/g, ' ').split(/\s+/).filter(t => t.length >= 6 && /[0-9]/.test(t) && /[A-Z]/.test(t));
-      toks.sort((a, b) => b.length - a.length); serial = toks[0] || '';
-    }
-    ph.serial = serial || '(none found)';
+    const p = parseSerial((data.text || '').toUpperCase());
+    ph.serial = p.serial || '(none found)';
+    ph.model = p.model || '';
+    ph.candidates = p.candidates;
     save(); render();
-    toast(serial ? 'Serial: ' + serial : 'No serial detected');
+    toast(p.serial ? 'Serial: ' + p.serial + '. Wrong one? Tap a chip or edit it.' : 'No clear serial. Pick a chip or type it.', 4500);
   } catch (err) {
     toast('OCR unavailable offline (needs first online load)');
   }
+}
+function setPhotoSerial(id, v){ const ph = P.photos.find(p => p.id === id); if (ph){ ph.serial = (v || '').trim(); save(); } }
+
+/* full-screen photo viewer */
+function viewPhoto(id){
+  const ph = P.photos.find(p => p.id === id); if (!ph) return;
+  const ov = document.createElement('div');
+  ov.id = 'photoLightbox';
+  ov.className = 'fixed inset-0 z-[85] bg-black/95 flex flex-col';
+  ov.innerHTML = `
+    <div class="flex justify-between items-center px-4 py-3 text-white" style="padding-top:max(0.75rem,env(safe-area-inset-top))">
+      <button id="plClose" class="press font-semibold text-[15px]">‹ Close</button>
+      <span class="text-sm text-white/70 truncate px-3 flex-1 text-center">${esc(ph.caption || 'Photo')}</span>
+      <button id="plDel" class="press text-red-400 text-sm font-semibold">Delete</button>
+    </div>
+    <div class="flex-1 flex items-center justify-center p-3 overflow-auto"><img src="${ph.data}" class="max-w-full max-h-full object-contain rounded-lg" /></div>
+    ${(ph.serial && ph.serial !== '(none found)') || ph.model ? `<div class="text-center text-white/80 text-sm pb-6 px-4 space-y-0.5" style="padding-bottom:max(1.5rem,env(safe-area-inset-bottom))">
+      ${ph.serial && ph.serial !== '(none found)' ? `<div>SN: <span class="text-spark font-bold break-all">${esc(ph.serial)}</span></div>` : ''}
+      ${ph.model ? `<div class="text-white/50 text-xs break-all">Model: ${esc(ph.model)}</div>` : ''}
+    </div>` : ''}`;
+  document.body.appendChild(ov);
+  ov.querySelector('#plClose').onclick = () => ov.remove();
+  ov.querySelector('#plDel').onclick = () => { if (confirm('Delete this photo?')){ delPhoto(id); ov.remove(); } };
 }
 
 /* ---------- export ZIP (Excel + photos) ---------- */
@@ -2735,7 +2777,7 @@ boot();
 history.pushState({ spark: 1 }, '');
 let _backExit = false;
 window.addEventListener('popstate', () => {
-  const ov = document.getElementById('voiceWalk') || document.getElementById('reportOverlay') || document.getElementById('liveOverlay');
+  const ov = document.getElementById('photoLightbox') || document.getElementById('voiceWalk') || document.getElementById('reportOverlay') || document.getElementById('liveOverlay');
   if (ov){ (ov.id === 'liveOverlay' && typeof stopLive === 'function') ? stopLive() : ov.remove(); history.pushState({spark:1}, ''); return; }
   if (typeof $modal !== 'undefined' && $modal && !$modal.classList.contains('hidden')){ closeModal(); history.pushState({spark:1}, ''); return; }
   if (P){ P = null; setLS(LS.current, ''); render(); history.pushState({spark:1}, ''); return; }
