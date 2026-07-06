@@ -1,6 +1,7 @@
 # Spark Homes — Repair Cost Estimator
 
 **Live app:** https://rohitdvv.github.io/spark-homes-estimator/
+**Architecture / technical docs:** [ARCHITECTURE.md](ARCHITECTURE.md)
 **60-second tour:** open the link, tap **"✨ Load demo property"**, then swipe
 through Estimate → Photos → Copilot → Deal → Export.
 
