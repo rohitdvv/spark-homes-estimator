@@ -23,6 +23,44 @@ Three principles drive the design:
 3. **One render path.** A single `render()` function rebuilds the screen from
    state. No virtual DOM, no reactivity library. State in, HTML out.
 
+### System diagram
+
+```mermaid
+flowchart TB
+  PAGES["GitHub Pages (static hosting)"]
+
+  subgraph Device["User device - browser / installed PWA"]
+    direction TB
+    UI["UI layer<br/>render() builds views + event delegation via data-act"]
+    STATE["State<br/>P active project · UI view state"]
+    LOGIC["Domain logic<br/>price resolution · totals · progress · keys"]
+    LS[("localStorage<br/>projects · global · settings · PIN hash")]
+    AI["On-device AI - WebAssembly<br/>MiniLM · Whisper · CLIP · Tesseract"]
+    SW["Service Worker<br/>offline cache + transformers-cache"]
+
+    UI --> STATE
+    STATE --> LOGIC
+    LOGIC --> LS
+    UI --> AI
+    SW -. serves offline .-> UI
+  end
+
+  subgraph Net["Network - optional, cached after first load"]
+    direction TB
+    CDN["CDN libraries<br/>Tailwind · SheetJS · JSZip"]
+    HF["Hugging Face<br/>AI model weights"]
+    OSM["OpenStreetMap / Web Speech<br/>addresses · online transcription"]
+  end
+
+  PAGES ==> Device
+  Net -. first load only .-> SW
+  AI -. downloads once .-> HF
+```
+
+Everything inside the device box works with no network. The network box is
+optional and only touched on first load (or for live online transcription and
+address lookup), after which its assets are cached.
+
 ---
 
 ## 2. Is there a "backend"?
@@ -295,24 +333,19 @@ offline use after first load.
 
 ## 10. Data flow (one estimate, end to end)
 
-```
-Agent walks house
-   |
-   |  (tap / voice / camera)
-   v
-handle(event) --> mutate P (rooms, cells, photos, deal)
-   |
-   +--> save() --> localStorage (spark_projects_v1)
-   |
-   +--> render() --> header + active view + nav
-   |
-   v
-Deal Analyzer reads grandTotal() live --> GO/CAUTION/NO-GO
-   |
-   v
-Export --> SheetJS xlsx + JSZip photos --> ZIP download
-   or Client report --> print / PDF
-   or Share --> lz-string --> QR / link --> imported on another device
+```mermaid
+flowchart TB
+  A["Agent walks the house"] -->|tap / voice / camera| H["handle(event)"]
+  H --> M["mutate P<br/>rooms · cells · photos · deal"]
+  M --> S["save() to localStorage"]
+  M --> R["render()<br/>header + active view + nav"]
+  M --> D["Deal Analyzer<br/>reads grandTotal() live"]
+  D --> V{"Verdict"}
+  V --> GO["GO / CAUTION / NO-GO"]
+  R --> OUT{"Output"}
+  OUT --> X["Export: SheetJS xlsx + JSZip photos -> ZIP"]
+  OUT --> P["Client report -> print / PDF"]
+  OUT --> Q["Share: lz-string -> QR / link -> import on another device"]
 ```
 
 Nothing leaves the device unless the agent explicitly exports or shares.
