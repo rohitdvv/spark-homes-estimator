@@ -220,7 +220,7 @@ const LS = {
 const j = (k, fb) => { try { return JSON.parse(localStorage.getItem(k)) ?? fb; } catch { return fb; } };
 const setLS = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); return true; } catch { return false; } };
 
-const APP_VERSION = 'v35';
+const APP_VERSION = 'v36';
 let AGENT = j('spark_agent_v1', '');
 function setAgent(n){ AGENT = (n || '').trim(); setLS('spark_agent_v1', AGENT); }
 
@@ -2614,11 +2614,14 @@ function loadTesseract() {
 /* Parse a serial from OCR text. Serial-specific labels win; the MODEL number is
    captured separately so it is never mistaken for the serial. */
 function parseSerial(text){
-  const serialLbl = text.match(/(?:SERIAL\s*(?:NO|NUMBER|#)?|S\s*\/\s*N|\bSN\b|SER\.?)\s*[:#.\-]?\s*([A-Z0-9][A-Z0-9\-]{4,})/);
-  const modelLbl  = text.match(/(?:MODEL\s*(?:NO|NUMBER|#)?|MOD\.?|M\s*\/\s*N)\s*[:#.\-]?\s*([A-Z0-9][A-Z0-9\-]{3,})/);
-  // candidate tokens: mixed letters+digits, length >= 6 (typical of serials)
+  // the captured value must contain a digit (real serials/models do), so the
+  // words "NO"/"NUMBER" after the label are never mistaken for the value.
+  const val = '((?=[A-Z0-9\\-]*[0-9])[A-Z0-9][A-Z0-9\\-]{4,})';
+  const serialLbl = text.match(new RegExp('(?:SERIAL\\s*(?:NO|NUMBER|NUM|#)?|S\\s*/\\s*N|\\bSN\\b|SER\\.?)\\s*[:#.\\-]?\\s*' + val));
+  const modelLbl  = text.match(new RegExp('(?:MODEL\\s*(?:NO|NUMBER|NUM|#)?|MOD\\.?|M\\s*/\\s*N)\\s*[:#.\\-]?\\s*' + val));
+  // candidate tokens: mixed letters+digits, length >= 5 (typical of serials/models)
   const toks = [...new Set((text.replace(/[^A-Z0-9\s\-]/g, ' ').split(/\s+/))
-    .filter(t => t.length >= 6 && /[0-9]/.test(t) && /[A-Z]/.test(t)))].sort((a,b)=>b.length-a.length);
+    .filter(t => t.length >= 5 && /[0-9]/.test(t) && /[A-Z]/.test(t)))].sort((a,b)=>b.length-a.length);
   const model = modelLbl ? modelLbl[1] : '';
   let serial = serialLbl ? serialLbl[1] : (toks.find(t => t !== model) || toks[0] || '');
   return { serial, model, candidates: toks.slice(0, 6) };
