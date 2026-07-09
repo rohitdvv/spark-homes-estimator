@@ -163,6 +163,12 @@ houses, work shared and presented):
 - **Branded client report** (Export tab): one tap opens a print-ready, branded
   report (verdict, cost-by-section, full scope of work, photos) to save as PDF
   or print, beyond the raw Excel.
+- **Plate-to-Estimate age intelligence** (Photos tab): scan an appliance data
+  plate and the app decodes the manufacture date (printed date first, brand
+  serial rules second), computes the unit's age against its typical lifespan,
+  and offers a one-tap replacement line item ("water heater is 21 years old,
+  past its 12-year life: add Hot Water Heater $1,425"). OCR runs on a
+  preprocessed image (upscaled, grayscale, contrast-stretched) for accuracy.
 
 ---
 
