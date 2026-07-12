@@ -91,6 +91,31 @@
   html.dark .shadow-sm, html.dark .shadow, html.dark .shadow-lg { box-shadow:0 1px 3px rgba(0,0,0,.45) !important; }
   /* keep the brand logo visible on dark surfaces */
   html.dark img[src*="spark-logo"] { filter: brightness(0) invert(1); }
+  /* ...but never invert it inside a white chip (would be white-on-white) */
+  html.dark .bg-white img[src*="spark-logo"] { filter: none; }
+
+  /* ---- motion system: the app should feel alive, not rendered ---- */
+  .money { font-variant-numeric: tabular-nums; }
+  .view > * { animation: rise .5s cubic-bezier(.16,1,.3,1) backwards; }
+  .view > *:nth-child(1){ animation-delay:.02s } .view > *:nth-child(2){ animation-delay:.07s }
+  .view > *:nth-child(3){ animation-delay:.12s } .view > *:nth-child(4){ animation-delay:.17s }
+  .view > *:nth-child(5){ animation-delay:.22s } .view > *:nth-child(6){ animation-delay:.27s }
+  .view > *:nth-child(n+7){ animation-delay:.32s }
+  @keyframes rise { from { opacity:0; transform: translateY(14px); } }
+  main[data-dir="l"] .view { animation: viewL .3s cubic-bezier(.16,1,.3,1); }
+  main[data-dir="r"] .view { animation: viewR .3s cubic-bezier(.16,1,.3,1); }
+  @keyframes viewL { from { opacity:0; transform: translateX(28px); } to { opacity:1; transform:none; } }
+  @keyframes viewR { from { opacity:0; transform: translateX(-28px); } to { opacity:1; transform:none; } }
+  .fab { position: relative; }
+  .fab.on::after { content:''; position:absolute; inset:-7px; border-radius:50%;
+    border:2px solid rgba(208,80,0,.55); animation: ring 1.9s ease-out infinite; }
+  @keyframes ring { from { transform:scale(.82); opacity:.9; } to { transform:scale(1.28); opacity:0; } }
+  .hero-dots { background-image: radial-gradient(rgba(255,255,255,.09) 1px, transparent 1.3px); background-size: 22px 22px; }
+  .xr-heat { transition: opacity .8s ease; }
+  .xr-base { fill:#e9ecf2; stroke:#d3d9e3; stroke-width:1; }
+  html.dark .xr-base { fill:#1c2739; stroke:#33415588; }
+  .xr-add { fill:transparent; stroke:#b9c2cf; stroke-width:1.2; stroke-dasharray:4 3; }
+  html.dark .xr-add { stroke:#475569; }
   /* smooth theme flip: transition colours only while toggling (no relayout) */
   html.theme-anim *:not(.themesw):not(.knob) {
     transition: background-color .4s ease, color .4s ease, border-color .4s ease, fill .4s ease !important;
@@ -220,7 +245,7 @@ const LS = {
 const j = (k, fb) => { try { return JSON.parse(localStorage.getItem(k)) ?? fb; } catch { return fb; } };
 const setLS = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); return true; } catch { return false; } };
 
-const APP_VERSION = 'v38';
+const APP_VERSION = 'v39';
 let AGENT = j('spark_agent_v1', '');
 function setAgent(n){ AGENT = (n || '').trim(); setLS('spark_agent_v1', AGENT); }
 
@@ -339,6 +364,7 @@ function openProject(id) {
   if (!P) return;
   UI.roomId = P.rooms[0]?.id || null;
   UI.tab = 'estimate';
+  UI._countGrand = true; // animate the total up from zero on open
   setLS(LS.current, id);
   render();
 }
@@ -384,7 +410,7 @@ function render() {
   const pr = progress();
   $app.innerHTML = `
     ${header(pr)}
-    <main class="flex-1 overflow-y-auto pb-28">${
+    <main class="flex-1 overflow-y-auto pb-28" data-dir="${UI._dir || ''}">${
       UI.tab === 'estimate' ? viewEstimate()
       : UI.tab === 'copilot' ? viewCopilot()
       : UI.tab === 'photos' ? viewPhotos()
@@ -393,7 +419,21 @@ function render() {
     }</main>
     ${bottomNav()}
   `;
+  UI._dir = '';
   bind();
+  if (UI._countGrand){ UI._countGrand = false; countUp(document.getElementById('grand'), grandTotal(), v => fmt(v)); }
+}
+
+/* animate a number from 0 to its value: the total should feel earned */
+function countUp(el, to, fmtFn){
+  if (!el || !to) return;
+  const t0 = performance.now(), dur = 650;
+  const step = (ts) => {
+    const p = Math.min(1, (ts - t0) / dur), e = 1 - Math.pow(1 - p, 3);
+    el.textContent = fmtFn(to * e);
+    if (p < 1) requestAnimationFrame(step);
+  };
+  requestAnimationFrame(step);
 }
 
 /* ---- Header with project name, running total, progress ---- */
@@ -414,7 +454,7 @@ function header(pr) {
       ${darkBtn('mr-1')}
       <div class="text-right">
         <div class="text-[10px] uppercase tracking-wide text-gray-400 font-semibold">Estimate</div>
-        <div id="grand" class="text-xl font-extrabold text-spark leading-none">${fmt(grandTotal())}</div>
+        <div id="grand" class="text-xl font-extrabold text-spark leading-none money">${fmt(grandTotal())}</div>
       </div>
     </div>
     <div class="h-1.5 bg-gray-100">
@@ -423,12 +463,55 @@ function header(pr) {
   </header>`;
 }
 
+/* =========================================================
+   House X-Ray: a live cross-section of the house that heats up
+   as money accrues. Every zone is tappable (jump to that room,
+   or add it if missing). The signature visual of the app.
+   ========================================================= */
+function houseXray(){
+  const totals = {};
+  P.rooms.forEach(r => { totals[r.type] = (totals[r.type] || 0) + roomTotal(r.id); });
+  const max = Math.max(1, ...Object.values(totals));
+  const zone = (type, shape, lx, ly, small) => {
+    const has = P.rooms.some(r => r.type === type);
+    const t = totals[type] || 0, share = t / max;
+    const name = ROOM_TYPES[type].label.replace(' / Common','').replace(' / General','');
+    const labelFill = share > 0.5 ? '#fff' : 'var(--ink-txt)';
+    return `
+      <g data-act="xray" data-type="${type}" style="cursor:pointer">
+        ${has
+          ? `${shape.replace('/>', ' class="xr-base"/>')}
+             ${shape.replace('/>', ` class="xr-heat" fill="#d05000" opacity="${(share * 0.92).toFixed(3)}"/>`)}`
+          : shape.replace('/>', ' class="xr-add"/>')}
+        <text x="${lx}" y="${ly}" text-anchor="middle" fill="${has ? labelFill : '#94a3b8'}" style="font-size:${small ? 8 : 9.5}px;font-weight:700;pointer-events:none">${has ? esc(name) : '+ ' + esc(name)}</text>
+        ${has && t > 0 ? `<text x="${lx}" y="${ly + (small ? 9 : 12)}" text-anchor="middle" fill="${labelFill}" style="font-size:${small ? 8 : 10}px;font-weight:800;pointer-events:none" class="money">${fmtK(t)}</text>` : ''}
+      </g>`;
+  };
+  return `
+  <div class="bg-white rounded-2xl p-3 shadow-sm">
+    <div class="flex items-center justify-between px-1 mb-1">
+      <span class="text-[11px] font-bold text-gray-400 uppercase tracking-wide">🩻 House X-Ray · live cost map</span>
+      <span class="text-[12px] font-extrabold text-spark money">${fmt(grandTotal())}</span>
+    </div>
+    <svg viewBox="0 0 360 218" class="w-full select-none">
+      ${zone('exterior', `<polygon points="18,80 180,12 342,80"/>`, 180, 55)}
+      ${zone('systems',  `<rect x="44" y="84" width="272" height="26" rx="2"/>`, 180, 101, true)}
+      ${zone('bedroom',  `<rect x="44" y="112" width="134" height="44" rx="2"/>`, 111, 131)}
+      ${zone('bathroom', `<rect x="182" y="112" width="134" height="44" rx="2"/>`, 249, 131)}
+      ${zone('living',   `<rect x="44" y="158" width="134" height="44" rx="2"/>`, 111, 177)}
+      ${zone('kitchen',  `<rect x="182" y="158" width="134" height="44" rx="2"/>`, 249, 177)}
+      ${zone('interior', `<rect x="36" y="204" width="288" height="12" rx="2"/>`, 180, 213, true)}
+    </svg>
+  </div>`;
+}
+
 /* ---- Estimate view: room tabs + group accordions ---- */
 function viewEstimate() {
   const room = P.rooms.find(r => r.id === UI.roomId) || P.rooms[0];
   return `
   <div class="view">
     <div class="noscroll overflow-x-auto flex gap-2 px-4 py-3 bg-[#f1f3f6] sticky top-[0] z-30">${roomChipsHTML(room)}</div>
+    <div class="px-4 pt-3">${houseXray()}</div>
     <div class="px-4 pt-3">
       <button data-act="voicewalk" class="press w-full flex items-center justify-center gap-2 py-2.5 rounded-xl bg-ink text-white font-semibold text-sm">
         🎙️ Voice walkthrough <span class="text-[10px] font-bold bg-spark px-1.5 py-0.5 rounded-full">AI</span>
@@ -1265,12 +1348,12 @@ function renderHome() {
   const stats = projects.map(projectStat);
   const pipeline = stats.reduce((s,x)=>s+x.rep,0);
   const goCount = stats.filter(x=>x.verdict==='GO').length;
-  const tile = (l,v) => `<div class="rounded-2xl px-2 py-3 text-center" style="background:rgba(255,255,255,.09);backdrop-filter:blur(8px);border:1px solid rgba(255,255,255,.08)">
-    <div class="text-[19px] font-extrabold leading-none">${v}</div>
+  const tile = (l,v,cu,cuf) => `<div class="rounded-2xl px-2 py-3 text-center" style="background:rgba(255,255,255,.09);backdrop-filter:blur(8px);border:1px solid rgba(255,255,255,.08)">
+    <div class="text-[19px] font-extrabold leading-none money" ${cu != null ? `data-cu="${cu}" data-cuf="${cuf}"` : ''}>${v}</div>
     <div class="text-[9.5px] text-white/55 font-bold uppercase tracking-wide mt-1">${l}</div></div>`;
   $app.innerHTML = `
   <div class="view min-h-screen flex flex-col bg-[#f1f3f6]">
-    <header class="px-5 pb-14 text-white" style="padding-top:max(3.25rem,calc(env(safe-area-inset-top) + 1rem));background:linear-gradient(155deg,#233350 0%,#0b1220 92%)">
+    <header class="px-5 pb-14 text-white" style="padding-top:max(3.25rem,calc(env(safe-area-inset-top) + 1rem));background-image:radial-gradient(rgba(255,255,255,.08) 1px, transparent 1.3px),linear-gradient(155deg,#233350 0%,#0b1220 92%);background-size:22px 22px,100% 100%">
       <div class="flex items-center justify-between mb-6">
         <span class="inline-flex items-center bg-white rounded-xl px-3.5 py-2.5 shadow-md"><img src="./spark-logo.png" class="h-8 w-auto" onerror="this.parentNode.style.display='none'" /></span>
         <div class="flex items-center gap-3 scale-90 origin-right">${darkBtn('')}<button data-act="settings" class="press text-white/70 text-base" aria-label="Settings">⚙</button></div>
@@ -1278,7 +1361,7 @@ function renderHome() {
       <h1 class="text-[20px] font-bold leading-tight">${greet}${who}</h1>
       <p class="text-white/50 text-[12.5px] mt-1">${projects.length ? 'Your acquisition pipeline at a glance.' : 'Walk a property. Know the number before you offer.'}</p>
       <div class="grid grid-cols-3 gap-2.5 mt-5" style="margin-bottom:-3.25rem">
-        ${tile('Properties', projects.length)}${tile('Repair value', fmtK(pipeline))}${tile('GO deals', goCount)}
+        ${tile('Properties', projects.length, projects.length, 'int')}${tile('Repair value', fmtK(pipeline), pipeline, 'k')}${tile('GO deals', goCount, goCount, 'int')}
       </div>
     </header>
 
@@ -1324,6 +1407,11 @@ function renderHome() {
     </div>
   </div>`;
   bind();
+  // count the stat tiles up from zero: the pipeline should feel alive
+  $app.querySelectorAll('[data-cu]').forEach(el => {
+    const v = +el.dataset.cu; if (!v) return;
+    countUp(el, v, el.dataset.cuf === 'k' ? (x => fmtK(x)) : (x => Math.round(x)));
+  });
 }
 
 /* =====================================================================
@@ -1837,7 +1925,9 @@ function handle(e) {
     case 'new': modalNewEstimate(); break;
     case 'open': openProject(d.id); break;
     case 'projects': modalProjects(); break;
-    case 'tab': UI.tab = d.tab; render(); break;
+    case 'tab': { const ORD = ['estimate','photos','copilot','deal','export'];
+      UI._dir = ORD.indexOf(d.tab) > ORD.indexOf(UI.tab) ? 'l' : 'r';
+      UI.tab = d.tab; render(); break; }
     case 'room': selectRoom(d.id); break;
     case 'addroom': modalAddRoom(); break;
     case 'delroom': confirmDel('Remove this room and its selections?', () => removeRoom(d.id)); break;
@@ -1875,6 +1965,9 @@ function handle(e) {
     case 'settings': modalSettings(); break;
     case 'demo': loadDemo(); break;
     case 'gohome': P = null; setLS(LS.current, ''); render(); break;
+    case 'xray': { const r = P.rooms.find(x => x.type === d.type);
+      if (r){ selectRoom(r.id); const b = document.getElementById('roomBody'); if (b) b.scrollIntoView({ behavior:'smooth', block:'start' }); }
+      else modalAddRoom(); break; }
     case 'compare': modalCompare(); break;
     case 'share': modalShare(); break;
     case 'report': clientReport(); break;
