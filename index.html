@@ -34,6 +34,15 @@
 <style>
   :root { --spark: #d05000; }
   * { -webkit-tap-highlight-color: transparent; }
+  /* Boot splash: covers first paint until Tailwind's CSS is generated, so the
+     app never flashes as unstyled raw HTML (the giant-logo bug on first open). */
+  #boot-splash { position: fixed; inset: 0; z-index: 9999; background: #0b1220;
+    display: flex; align-items: center; justify-content: center; transition: opacity .35s ease; }
+  #boot-splash.hide { opacity: 0; pointer-events: none; }
+  #boot-splash img { width: 128px; height: auto; animation: bpulse 1.3s ease-in-out infinite; }
+  @keyframes bpulse { 0%,100% { opacity:.5; transform:scale(.96); } 50% { opacity:1; transform:scale(1); } }
+  /* FOUC guard: never let the raw logo file render at its native size */
+  img[src*="spark-logo"] { max-height: 140px; width: auto; }
   html, body { overscroll-behavior-y: contain; }
   body {
     font-family: 'Inter', system-ui, sans-serif;
@@ -167,6 +176,8 @@
 </head>
 <body class="select-none">
 
+<div id="boot-splash"><img src="./spark-logo.png" alt="Spark" style="filter:brightness(0) invert(1)" onerror="this.style.display='none'" /></div>
+
 <!-- ===================== APP ROOT ===================== -->
 <div id="app" class="w-full max-w-md md:max-w-3xl lg:max-w-5xl mx-auto min-h-screen flex flex-col bg-[#f1f3f6] shadow-xl"></div>
 
@@ -245,7 +256,7 @@ const LS = {
 const j = (k, fb) => { try { return JSON.parse(localStorage.getItem(k)) ?? fb; } catch { return fb; } };
 const setLS = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); return true; } catch { return false; } };
 
-const APP_VERSION = 'v40';
+const APP_VERSION = 'v41';
 let AGENT = j('spark_agent_v1', '');
 function setAgent(n){ AGENT = (n || '').trim(); setLS('spark_agent_v1', AGENT); }
 
@@ -3094,6 +3105,19 @@ function boot() {
   render();
 }
 boot();
+
+/* Hide the boot splash once Tailwind's utility CSS is live (probe `.hidden`).
+   Uses setInterval + window.load + a hard timeout, NOT requestAnimationFrame,
+   because rAF is paused in background/inactive tabs and would leave the splash
+   stuck forever. Multiple backstops guarantee it always clears. */
+(function revealWhenStyled(){
+  const hide = () => { const s = document.getElementById('boot-splash'); if (s && !s.classList.contains('hide')){ s.classList.add('hide'); setTimeout(() => { s.remove(); }, 400); } };
+  const styled = () => { const p = document.createElement('div'); p.className = 'hidden'; document.body.appendChild(p); const ok = getComputedStyle(p).display === 'none'; p.remove(); return ok; };
+  let n = 0;
+  const iv = setInterval(() => { if (styled() || n++ > 40){ clearInterval(iv); hide(); } }, 60);
+  window.addEventListener('load', () => { if (styled()){ clearInterval(iv); hide(); } });
+  setTimeout(() => { clearInterval(iv); hide(); }, 4000); // absolute backstop
+})();
 
 // Device / browser back button: navigate WITHIN the app instead of closing it.
 history.pushState({ spark: 1 }, '');
