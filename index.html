@@ -89,8 +89,10 @@
   html.dark .shadow-sm, html.dark .shadow, html.dark .shadow-lg { box-shadow:0 1px 3px rgba(0,0,0,.45) !important; }
   /* keep the brand logo visible on dark surfaces */
   html.dark img[src*="spark-logo"] { filter: brightness(0) invert(1); }
-  /* ...but never invert it inside a white chip (would be white-on-white) */
-  html.dark .bg-white img[src*="spark-logo"] { filter: none; }
+  /* logo chips: on dark, drop the white plate and show a clean white wordmark
+     so it stays highlighted instead of vanishing into the dark chip */
+  html.dark .logo-chip { background: transparent !important; box-shadow: none !important; }
+  html.dark .logo-chip img[src*="spark-logo"] { filter: brightness(0) invert(1) !important; }
 
   /* ---- motion system: the app should feel alive, not rendered ---- */
   .money { font-variant-numeric: tabular-nums; }
@@ -114,6 +116,11 @@
   html.dark .xr-base { fill:#1c2739; stroke:#33415588; }
   .xr-add { fill:transparent; stroke:#b9c2cf; stroke-width:1.2; stroke-dasharray:4 3; }
   html.dark .xr-add { stroke:#475569; }
+  /* selected zone: soft orange light so a tap visibly lights the zone up */
+  .xr-lit { fill:#ffd9b8; opacity:.28; animation: xrLit .5s ease backwards; }
+  html.dark .xr-lit { fill:#ff8a3d; opacity:.22; }
+  .xr-glow { filter: drop-shadow(0 0 3px rgba(208,80,0,.95)) drop-shadow(0 0 7px rgba(208,80,0,.5)); }
+  @keyframes xrLit { from { opacity:0; } }
   /* smooth theme flip: transition colours only while toggling (no relayout) */
   html.theme-anim *:not(.themesw):not(.knob) {
     transition: background-color .4s ease, color .4s ease, border-color .4s ease, fill .4s ease !important;
@@ -245,7 +252,7 @@ const LS = {
 const j = (k, fb) => { try { return JSON.parse(localStorage.getItem(k)) ?? fb; } catch { return fb; } };
 const setLS = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); return true; } catch { return false; } };
 
-const APP_VERSION = 'v42';
+const APP_VERSION = 'v43';
 let AGENT = j('spark_agent_v1', '');
 function setAgent(n){ AGENT = (n || '').trim(); setLS('spark_agent_v1', AGENT); }
 
@@ -487,21 +494,22 @@ function houseXraySVG(plain){
         ${has
           ? `${shape.replace('/>', base)}
              ${shape.replace('/>', ` class="xr-heat" fill="#d05000" opacity="${(share * 0.92).toFixed(3)}"/>`)}
-             ${type === activeType ? shape.replace('/>', ' fill="none" stroke="#d05000" stroke-width="3"/>') : ''}`
+             ${type === activeType ? `${shape.replace('/>', ' class="xr-lit"/>')}
+             ${shape.replace('/>', ' fill="none" stroke="#d05000" stroke-width="3" class="xr-glow"/>')}` : ''}`
           : shape.replace('/>', add)}
         <text x="${lx}" y="${ly}" text-anchor="middle" fill="${has ? labelFill : '#94a3b8'}" style="font-size:${small ? 8 : 9.5}px;font-weight:700;pointer-events:none">${has ? esc(name) : '+ ' + esc(name)}</text>
         ${has && t > 0 ? `<text x="${lx}" y="${ly + (small ? 9 : 12)}" text-anchor="middle" fill="${labelFill}" style="font-size:${small ? 8 : 10}px;font-weight:800;pointer-events:none" class="money">${fmtK(t)}</text>` : ''}
       </g>`;
   };
   return `
-    <svg viewBox="0 0 360 218" class="w-full select-none" style="width:100%">
+    <svg viewBox="0 0 360 230" class="w-full select-none" style="width:100%;overflow:visible">
       ${zone('exterior', `<polygon points="18,80 180,12 342,80"/>`, 180, 55)}
       ${zone('systems',  `<rect x="44" y="84" width="272" height="26" rx="2"/>`, 180, 101, true)}
       ${zone('bedroom',  `<rect x="44" y="112" width="134" height="44" rx="2"/>`, 111, 131)}
       ${zone('bathroom', `<rect x="182" y="112" width="134" height="44" rx="2"/>`, 249, 131)}
       ${zone('living',   `<rect x="44" y="158" width="134" height="44" rx="2"/>`, 111, 177)}
       ${zone('kitchen',  `<rect x="182" y="158" width="134" height="44" rx="2"/>`, 249, 177)}
-      ${zone('interior', `<rect x="36" y="204" width="288" height="12" rx="2"/>`, 180, 213, true)}
+      ${zone('interior', `<rect x="36" y="204" width="288" height="22" rx="2"/>`, 180, 213, true)}
     </svg>`;
 }
 function houseXray(){
@@ -1331,7 +1339,7 @@ function bottomNav() {
 function renderWelcome(){
   $app.innerHTML = `
   <div class="flex flex-col justify-center px-7 text-white" style="min-height:100dvh;background:linear-gradient(160deg,#233350,#0b1220)">
-    <span class="inline-flex self-start items-center bg-white rounded-xl px-3 py-2 mb-8"><img src="./spark-logo.png" class="h-7 w-auto" onerror="this.parentNode.style.display='none'"/></span>
+    <span class="logo-chip inline-flex self-start items-center bg-white rounded-xl px-3 py-2 mb-8"><img src="./spark-logo.png" class="h-7 w-auto" onerror="this.parentNode.style.display='none'"/></span>
     <h1 class="text-2xl font-extrabold">Welcome</h1>
     <p class="text-white/60 text-sm mt-1.5 mb-6 leading-snug">Let\'s set up your estimator. What should we call you? Your name is printed on every report you generate, so the office knows who inspected the property.</p>
     <input id="wcName" placeholder="Your name" enterkeyhint="done" autocomplete="name"
@@ -1375,7 +1383,7 @@ function renderHome() {
   <div class="view min-h-screen flex flex-col bg-[#f1f3f6]">
     <header class="px-5 pb-14 text-white" style="padding-top:max(3.25rem,calc(env(safe-area-inset-top) + 1rem));background-image:radial-gradient(rgba(255,255,255,.08) 1px, transparent 1.3px),linear-gradient(155deg,#233350 0%,#0b1220 92%);background-size:22px 22px,100% 100%">
       <div class="flex items-center justify-between mb-6">
-        <span class="inline-flex items-center bg-white rounded-xl px-3.5 py-2.5 shadow-md"><img src="./spark-logo.png" class="h-8 w-auto" onerror="this.parentNode.style.display='none'" /></span>
+        <span class="logo-chip inline-flex items-center bg-white rounded-xl px-3.5 py-2.5 shadow-md"><img src="./spark-logo.png" class="h-8 w-auto" onerror="this.parentNode.style.display='none'" /></span>
         <div class="flex items-center gap-3 scale-90 origin-right">${darkBtn('')}<button data-act="settings" class="press text-white/70 text-base" aria-label="Settings">⚙</button></div>
       </div>
       <h1 class="text-[20px] font-bold leading-tight">${greet}${who}</h1>
@@ -1487,7 +1495,7 @@ function modalAddRoom() {
 function renderLock(){
   $app.innerHTML = `
   <div class="min-h-screen flex flex-col items-center justify-center px-8 bg-ink text-white" style="min-height:100dvh">
-    <span class="inline-flex items-center bg-white rounded-xl px-3 py-2 mb-6"><img src="./spark-logo.png" class="h-7 w-auto" onerror="this.parentNode.style.display='none'"/></span>
+    <span class="logo-chip inline-flex items-center bg-white rounded-xl px-3 py-2 mb-6"><img src="./spark-logo.png" class="h-7 w-auto" onerror="this.parentNode.style.display='none'"/></span>
     <div class="font-extrabold text-xl mb-1">Enter PIN</div>
     <div class="text-[13px] text-gray-400 mb-5">This estimator is locked.</div>
     <input id="pinIn" type="password" inputmode="numeric" autocomplete="off" maxlength="8"
