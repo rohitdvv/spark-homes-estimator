@@ -1,7 +1,7 @@
 /* Spark Homes Repair Estimator — service worker
  * Offline-first: pre-cache the app shell + icons, runtime-cache CDN libraries.
  * Bump CACHE version to force clients to refresh cached assets. */
-const CACHE = 'spark-estimator-v41';
+const CACHE = 'spark-estimator-v42';
 
 // App shell — everything needed to boot fully offline.
 const SHELL = [
@@ -19,7 +19,7 @@ const SHELL = [
 // CDN libraries + on-device AI assets cached at runtime so a second launch
 // (and the offline semantic Copilot / OCR) work with no network.
 const RUNTIME_HOSTS = [
-  'cdn.tailwindcss.com', 'cdn.jsdelivr.net', 'unpkg.com',
+  'cdn.jsdelivr.net', 'unpkg.com',
   'huggingface.co', 'cdn-lfs.huggingface.co', 'cdn-lfs-us-1.hf.co', 'hf.co', // embedding model weights
   'tessdata.projectnaptha.com' // Tesseract OCR trained data
 ];
