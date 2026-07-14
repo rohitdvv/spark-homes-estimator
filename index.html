@@ -121,6 +121,9 @@
   html.dark .xr-lit { fill:#ff8a3d; opacity:.22; }
   .xr-glow { filter: drop-shadow(0 0 3px rgba(208,80,0,.95)) drop-shadow(0 0 7px rgba(208,80,0,.5)); }
   @keyframes xrLit { from { opacity:0; } }
+  /* header toolbar pill (history & snapshots): legible in both themes */
+  .hbtn { background:#eef1f5; border:1px solid #e2e6ec; color:#475569; }
+  html.dark .hbtn { background:#1f2b3e; border-color:#334155; color:#c7d2e0; }
   /* smooth theme flip: transition colours only while toggling (no relayout) */
   html.theme-anim *:not(.themesw):not(.knob) {
     transition: background-color .4s ease, color .4s ease, border-color .4s ease, fill .4s ease !important;
@@ -252,7 +255,7 @@ const LS = {
 const j = (k, fb) => { try { return JSON.parse(localStorage.getItem(k)) ?? fb; } catch { return fb; } };
 const setLS = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); return true; } catch { return false; } };
 
-const APP_VERSION = 'v44';
+const APP_VERSION = 'v45';
 let AGENT = j('spark_agent_v1', '');
 function setAgent(n){ AGENT = (n || '').trim(); setLS('spark_agent_v1', AGENT); }
 
@@ -404,6 +407,22 @@ function contingencyPct() { return Math.max(0, Math.min(50, +((P && P.contingenc
 function contingencyAmt() { return Math.round(grandTotal() * contingencyPct() / 100); }
 function bufferedTotal() { return grandTotal() + contingencyAmt(); }
 function displayTotal() { return contingencyPct() > 0 ? bufferedTotal() : grandTotal(); }
+function clampCont(v) { return Math.max(0, Math.min(30, Math.round(+v || 0))); }
+/* shared slider markup (Deal tab + header modal) */
+function contSlider(id, pct) {
+  return `<input id="${id}" type="range" min="0" max="30" step="1" value="${Math.min(30, pct)}" class="w-full accent-spark" />
+    <div class="flex justify-between text-[9px] text-gray-300 font-bold px-0.5 mt-0.5"><span>0%</span><span>10%</span><span>20%</span><span>30%</span></div>`;
+}
+/* live update while dragging/typing: refresh the readouts without a full
+   re-render (which would interrupt the drag); commit happens on 'change' */
+function contingencyLive(v, srcId) {
+  const p = clampCont(v);
+  P.contingency = p; saveSoon();
+  const raw = grandTotal(), amt = Math.round(raw * p / 100);
+  const ra = document.getElementById('ctRawAmtDeal'); if (ra) ra.innerHTML = `Raw ${fmt(raw)} <span class="text-spark font-semibold">+ ${fmt(amt)}</span>`;
+  const pl = document.getElementById('ctPlanDeal'); if (pl) pl.textContent = `Planning total ${fmt(raw + amt)}`;
+  ['ctSliderDeal', 'ctNumDeal'].forEach(gid => { const el = document.getElementById(gid); if (el && gid !== srcId && el.value !== String(p)) el.value = p; });
+}
 
 function isChecked(roomId, gid, id) { const c = P.cells[cellKey(roomId, gid, id)]; return !!(c && c.q != null); }
 function groupChecked(roomId, gid) { return groupItemIds(gid).filter(id => isChecked(roomId, gid, id)).length; }
@@ -557,10 +576,11 @@ function countUp(el, to, fmtFn){
 
 /* ---- Header with project name, running total, progress ---- */
 function header(pr) {
+  const snapN = (P.snapshots || []).length;
   return `
   <header class="sticky top-0 z-40 bg-white/95 backdrop-blur border-b border-gray-200" style="padding-top:env(safe-area-inset-top)">
-    <div class="px-4 pt-3 pb-2 flex items-center gap-2">
-      <button data-act="gohome" class="press -ml-1 text-gray-500" aria-label="Back to all estimates" title="All estimates">
+    <div class="px-4 pt-3 pb-1.5 flex items-center gap-2.5">
+      <button data-act="gohome" class="press -ml-1 text-gray-500 flex-shrink-0" aria-label="Back to all estimates" title="All estimates">
         <svg width="26" height="26" viewBox="0 0 24 24" fill="none"><path d="M15 18l-6-6 6-6" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
       </button>
       <div class="flex-1 min-w-0">
@@ -570,15 +590,18 @@ function header(pr) {
         </button>
         <div class="text-[11px] text-gray-400">${pr.done}/${pr.total} groups reviewed</div>
       </div>
-      <button data-act="history" class="press text-gray-400 mr-0.5" aria-label="History" title="History &amp; snapshots">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none"><path d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
-      </button>
-      ${darkBtn('mr-1')}
-      <button data-act="contingency" class="press text-right" aria-label="Contingency buffer" title="Contingency buffer">
+      <button data-act="contingency" class="press text-right flex-shrink-0" aria-label="Contingency buffer" title="Adjust contingency buffer">
         <div class="text-[10px] uppercase tracking-wide text-gray-400 font-semibold">Estimate${contingencyPct() > 0 ? ` <span class="text-spark">+${contingencyPct()}%</span>` : ''}</div>
         <div id="grand" class="text-xl font-extrabold text-spark leading-none money">${fmt(displayTotal())}</div>
         ${contingencyPct() > 0 ? `<div class="text-[9px] font-semibold text-gray-400 leading-tight">raw ${fmt(grandTotal())}</div>` : ''}
       </button>
+    </div>
+    <div class="px-4 pb-2 flex items-center justify-between gap-2">
+      <button data-act="history" class="press hbtn inline-flex items-center gap-1.5 pl-2.5 pr-3 py-1.5 rounded-full text-[12px] font-bold" aria-label="History and snapshots">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none"><path d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" stroke="#d05000" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        History &amp; snapshots${snapN ? `<span class="ml-0.5 text-[10px] font-extrabold text-white bg-spark rounded-full px-1.5 leading-[15px]">${snapN}</span>` : ''}
+      </button>
+      ${darkBtn('')}
     </div>
     <div class="h-1.5 bg-gray-100">
       <div class="pfill h-full bg-gradient-to-r from-spark-500 to-spark" style="width:${pr.pct}%"></div>
@@ -700,32 +723,39 @@ function modalContingency(){
   const raw = grandTotal();
   modal(`<div class="px-5 pb-8 pt-2">
     <h3 class="font-bold text-lg mb-1">💰 Contingency buffer</h3>
-    <p class="text-[12px] text-gray-400 mb-4 leading-snug">A safety cushion on top of the raw estimate. The real cost always runs higher than the walkthrough: a pipe behind a wall, mold under the floor, a permit you didn't plan for. The Deal Analyzer plans around this buffered number, so a "GO" stays a GO once reality hits.</p>
-    <div class="bg-gray-50 rounded-2xl p-4 mb-4">
+    <p class="text-[12px] text-gray-400 mb-4 leading-snug">A safety cushion on top of the raw estimate. The real cost always runs higher than the walkthrough: a pipe behind a wall, mold under the floor, a permit you didn't plan for. Slide or type any percentage; the Deal Analyzer plans around this buffered number, so a "GO" stays a GO once reality hits.</p>
+    <div class="flex items-center justify-center gap-2 mb-4">
+      <input id="ctNum" type="number" min="0" max="30" value="${contingencyPct()}" inputmode="numeric" aria-label="Contingency percentage" class="w-24 text-center font-extrabold text-spark text-3xl px-2 py-1 rounded-xl border border-gray-200 outline-none focus:border-spark" />
+      <span class="font-extrabold text-spark text-3xl">%</span>
+    </div>
+    ${contSlider('ctSlider', contingencyPct())}
+    <div class="flex gap-2 mt-4 mb-4">
+      ${[0,5,10,15,20].map(v => `<button data-ctp="${v}" class="ctpreset press flex-1 py-2 rounded-xl text-[13px] font-bold ${v === contingencyPct() ? 'bg-spark text-white' : 'bg-gray-100 text-gray-500'}">${v}%</button>`).join('')}
+    </div>
+    <div class="bg-gray-50 rounded-2xl p-4">
       <div class="flex justify-between text-[13px] py-1"><span class="text-gray-500">Raw estimate</span><span class="font-semibold">${fmt(raw)}</span></div>
       <div class="flex justify-between text-[13px] py-1"><span class="text-gray-500">Contingency <span id="ctPctLbl" class="text-spark font-bold">+${contingencyPct()}%</span></span><span class="font-semibold text-spark" id="ctAmt">${fmt(Math.round(raw*contingencyPct()/100))}</span></div>
       <div class="flex justify-between text-base pt-2 border-t border-gray-200 mt-1"><span class="font-bold">Buffered total</span><span class="font-extrabold text-spark" id="ctTotal">${fmt(raw+Math.round(raw*contingencyPct()/100))}</span></div>
     </div>
-    <input id="ctSlider" type="range" min="0" max="25" step="1" value="${contingencyPct()}" class="w-full accent-spark mb-3" />
-    <div class="flex gap-2">
-      ${[0,5,10,15,20].map(v => `<button data-ctp="${v}" class="ctpreset press flex-1 py-2 rounded-xl text-[13px] font-bold ${v === contingencyPct() ? 'bg-spark text-white' : 'bg-gray-100 text-gray-500'}">${v}%</button>`).join('')}
-    </div>
   </div>`);
   setTimeout(() => {
     const sl = document.getElementById('ctSlider');
-    const upd = (v) => {
-      v = Math.max(0, Math.min(50, Math.round(+v || 0)));
+    const nm = document.getElementById('ctNum');
+    const upd = (v, src) => {
+      v = clampCont(v);
       P.contingency = v;
       const amt = Math.round(raw * v / 100);
       const pl = document.getElementById('ctPctLbl'); if (pl) pl.textContent = '+' + v + '%';
       const am = document.getElementById('ctAmt'); if (am) am.textContent = fmt(amt);
       const tt = document.getElementById('ctTotal'); if (tt) tt.textContent = fmt(raw + amt);
       document.querySelectorAll('.ctpreset').forEach(b => { const on = +b.dataset.ctp === v; b.className = 'ctpreset press flex-1 py-2 rounded-xl text-[13px] font-bold ' + (on ? 'bg-spark text-white' : 'bg-gray-100 text-gray-500'); });
-      if (sl && sl.value !== String(v)) sl.value = v;
+      if (sl && src !== 'sl' && sl.value !== String(v)) sl.value = v;
+      if (nm && src !== 'nm' && nm.value !== String(v)) nm.value = v;
       saveSoon(); render(); // refresh the header/deal behind the open sheet
     };
-    if (sl) sl.oninput = () => upd(sl.value);
-    document.querySelectorAll('.ctpreset').forEach(b => b.onclick = () => upd(+b.dataset.ctp));
+    if (sl) sl.oninput = () => upd(sl.value, 'sl');
+    if (nm) { nm.oninput = () => upd(nm.value, 'nm'); nm.onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); nm.blur(); } }; }
+    document.querySelectorAll('.ctpreset').forEach(b => b.onclick = () => upd(+b.dataset.ctp, 'chip'));
   }, 60);
 }
 function roomChipsHTML(room){
@@ -970,15 +1000,20 @@ function viewDeal() {
     <div class="bg-white rounded-2xl p-4 shadow-sm">
       <div class="flex items-center justify-between mb-1">
         <span class="text-[12px] font-semibold text-gray-400 uppercase">💰 Contingency buffer</span>
-        <span class="font-extrabold text-spark">+${cpct}%</span>
+        <div class="flex items-center gap-1">
+          <input id="ctNumDeal" type="number" min="0" max="30" value="${cpct}" inputmode="numeric" aria-label="Contingency percentage"
+            class="w-12 text-right font-extrabold text-spark text-lg px-1.5 py-0.5 rounded-lg border border-gray-200 outline-none focus:border-spark" />
+          <span class="font-extrabold text-spark text-lg">%</span>
+        </div>
       </div>
-      <p class="text-[11px] text-gray-400 mb-3 leading-snug">The real cost runs higher than the walkthrough. This cushion feeds the profit, ROI, and verdict below, so a GO stays a GO once reality hits.</p>
-      <div class="flex gap-2">
-        ${[0,5,10,15,20].map(v => `<button data-act="setcont" data-v="${v}" class="press flex-1 py-2 rounded-xl text-[13px] font-bold ${v === cpct ? 'bg-spark text-white' : 'bg-gray-100 text-gray-500'}">${v}%</button>`).join('')}
+      <p class="text-[11px] text-gray-400 mb-3 leading-snug">The real cost runs higher than the walkthrough. Slide or type any cushion, it feeds the profit, ROI, and verdict below, so a GO stays a GO once reality hits.</p>
+      ${contSlider('ctSliderDeal', cpct)}
+      <div class="flex gap-1.5 mt-3">
+        ${[5,10,15,20].map(v => `<button data-act="setcont" data-v="${v}" class="press flex-1 py-1.5 rounded-lg text-[12px] font-bold ${v === cpct ? 'bg-spark text-white' : 'bg-gray-100 text-gray-500'}">${v}%</button>`).join('')}
       </div>
       <div class="flex justify-between items-baseline text-[12px] mt-3 pt-2 border-t border-gray-100">
-        <span class="text-gray-500">Raw ${fmt(rawRep)} <span class="text-spark font-semibold">+ ${fmt(camt)}</span></span>
-        <span class="font-bold">Planning total ${fmt(repairs)}</span>
+        <span class="text-gray-500" id="ctRawAmtDeal">Raw ${fmt(rawRep)} <span class="text-spark font-semibold">+ ${fmt(camt)}</span></span>
+        <span class="font-bold" id="ctPlanDeal">Planning total ${fmt(repairs)}</span>
       </div>
     </div>
 
@@ -2369,11 +2404,25 @@ function bind() {
   if (ci) ci.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); sendChat(); } });
   const ni = document.getElementById('noteIn');
   if (ni) ni.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); addNote(); } });
+  const cs = document.getElementById('ctSliderDeal');
+  if (cs) {
+    cs.addEventListener('input', () => contingencyLive(cs.value, 'ctSliderDeal'));
+    cs.addEventListener('change', () => { P.contingency = clampCont(cs.value); save(); render(); });
+  }
+  const cn = document.getElementById('ctNumDeal');
+  if (cn) {
+    cn.addEventListener('input', () => contingencyLive(cn.value, 'ctNumDeal'));
+    cn.addEventListener('change', () => { P.contingency = clampCont(cn.value); save(); render(); });
+    cn.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); cn.blur(); } });
+  }
   const log = document.getElementById('chatlog');
   if (log) log.scrollTop = log.scrollHeight;
 }
 function bindModal() {
   $modal.querySelectorAll('[data-m]').forEach(el => el.addEventListener('click', handleModal));
+  // modal buttons that reuse the main data-act vocabulary (snapshot compare /
+  // restore / delete, clear history, etc.) need the main handler too
+  $modal.querySelectorAll('[data-act]').forEach(el => { if (el.dataset.act !== 'backdrop') el.addEventListener('click', handle); });
 }
 
 function handle(e) {
@@ -2439,7 +2488,7 @@ function handle(e) {
     case 'emailsum': emailSummary(); break;
     case 'history': modalHistory(); break;
     case 'contingency': modalContingency(); break;
-    case 'setcont': P.contingency = Math.max(0, Math.min(50, +d.v || 0)); logActivity('deal', 'Contingency buffer set to ' + P.contingency + '%'); save(); render(); break;
+    case 'setcont': P.contingency = clampCont(d.v); logActivity('deal', 'Contingency buffer set to ' + P.contingency + '%'); save(); render(); break;
     case 'addnote': addNote(); break;
     case 'delnote': P.notes = (P.notes || []).filter(n => n.id !== d.id); save(); render(); break;
     case 'snaprestore': confirmDel('Restore this snapshot? Your current state will be auto-saved first.', () => { restoreSnapshot(d.id); toast('Snapshot restored ✓'); }); break;

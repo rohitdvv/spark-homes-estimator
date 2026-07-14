@@ -169,7 +169,11 @@ projects array is not serialized on every keystroke.
 
 - **Price resolution**: `priceOf(id)` resolves per-project override, then global
   override, then the list default. `catalog()` is `PRICE_LIST + custom - deleted`.
-- **Totals**: `lineTotal`, `groupTotal`, `roomTotal`, `grandTotal`.
+- **Totals**: `lineTotal`, `groupTotal`, `roomTotal`, `grandTotal`. `grandTotal()`
+  is always the raw sum of selected line items; `bufferedTotal()` layers the
+  contingency cushion on top (`grandTotal * (1 + contingency/100)`). The Deal
+  Analyzer, report, Excel, and header planning total all read `bufferedTotal()`,
+  while the scope-of-work line items still sum to `grandTotal()`.
 - **Progress / completion**: `progress()`, `groupComplete`, `isChecked`.
 - **Composite keys**: the estimate is a **flat map**, not a nested tree. Cells are
   keyed `"roomId|groupId|itemId"` and "No Action Needed" flags `"roomId|groupId"`.
@@ -177,7 +181,10 @@ projects array is not serialized on every keystroke.
 
 ### 5.4 Layer 4: state and the render loop
 
-- `P` - the active project object (persisted).
+- `P` - the active project object (persisted). Beyond scope (`rooms`, `cells`,
+  `nan`, `priceOverrides`, `photos`, `deal`), it carries `contingency` (buffer
+  %), `notes[]` (inspection notes), `history[]` (activity log), and
+  `snapshots[]` (named checkpoints).
 - `UI` - ephemeral view state: current tab, current room, open groups, busy flag.
 
 `render()` is the heart of the app:
@@ -188,11 +195,17 @@ projects array is not serialized on every keystroke.
 3. `$app.innerHTML = ...` replaces everything.
 4. `bind()` re-attaches listeners via **event delegation**: every interactive
    element carries a `data-act` attribute, and `bind()` wires the right event
-   (`click` / `input` / `change`) to a single `handle()` dispatcher.
+   (`click` / `input` / `change`) to a single `handle()` dispatcher. Modals are a
+   second surface: `bindModal()` wires their `data-m` buttons to `handleModal()`,
+   and also routes any `data-act` buttons inside a modal back to `handle()` so
+   shared actions (snapshot compare / restore / delete, clear history) work from
+   inside a sheet.
 
 State mutation always follows the same cycle: **handler -> mutate `P` -> save()
--> render()**. A few hot paths (room switching, deal inputs) do targeted partial
-re-renders to preserve scroll position and input focus.
+-> render()**. A few hot paths do targeted partial re-renders to preserve scroll
+position and input focus: room switching, deal inputs, and the contingency
+slider / number box (which update the readouts live on `input` and only commit a
+full `render()` on `change`, so dragging is never interrupted).
 
 ### 5.5 Layer 5: views
 
@@ -200,12 +213,13 @@ Five tabs, each a function returning an HTML string:
 
 - **Estimate** (`viewEstimate` / `roomChipsHTML` / `roomBodyHTML`): room strip +
   collapsible group accordions with checkboxes, quantity steppers, price
-  overrides, custom items, and a progress bar.
+  overrides, custom items, a progress bar, the House X-Ray cost map, and the
+  inspection-notes card.
 - **Photos** (`viewPhotos`): camera/upload + live capture, thumbnails, captions,
   serial OCR.
 - **Copilot** (`viewCopilot`): the AI layer (see section 6).
-- **Deal** (`viewDeal`): the Deal Analyzer with a profit waterfall and an ROI
-  gauge.
+- **Deal** (`viewDeal`): the Deal Analyzer with a contingency control (slider +
+  typed % + presets), a profit waterfall, and an ROI gauge.
 - **Export** (`viewExport`): summary, donut and treemap charts, and export /
   share / report actions.
 
@@ -274,9 +288,26 @@ top match is a decoy, it suggests nothing; otherwise it surfaces one-tap adds.
 
 ## 7. Feature subsystems
 
-- **Deal Analyzer**: pulls the live repair total, computes profit, ROI, holding
-  and selling costs, a GO/CAUTION/NO-GO verdict, and the 70%-rule max offer.
-  Rendered with an SVG profit waterfall and an SVG speedometer gauge.
+- **Deal Analyzer**: pulls the live **buffered** repair total (raw +
+  contingency), computes profit, ROI, holding and selling costs, a
+  GO/CAUTION/NO-GO verdict, and the 70%-rule max offer. Rendered with an SVG
+  profit waterfall and an SVG speedometer gauge.
+- **Estimate history & snapshots**: `logActivity()` appends every meaningful
+  mutation to `P.history` (capped, grouped by day in the timeline).
+  `saveSnapshot()` deep-copies the estimate state (cells, nan, rooms, prices,
+  deal, contingency, notes) into `P.snapshots`; `restoreSnapshot()` reverts to
+  one after auto-saving the current state first. `diffEstimate()` compares two
+  states and returns added / removed / changed items (with per-line dollar
+  deltas), room changes, and deal-input changes, rendered by `modalSnapDiff()`.
+- **Contingency buffer**: `P.contingency` (a percentage, 0-30) feeds
+  `bufferedTotal()`. Set from the Deal-tab card or a header-tap modal, both a
+  slider **and** a typed number box (any value, not just presets), kept in sync.
+  It flows into the Deal math, client report, Excel deal sheet, email hand-off,
+  copilot deal answer, property comparison, and shared links.
+- **Inspection notes**: `P.notes` holds `{ id, ts, room, text }` entries added
+  from the Estimate tab (auto-tagged to the current room), rendered on the
+  client report, exported as their own Excel sheet, and included in the email
+  hand-off and shared links.
 - **Data viz**: cost-by-section donut (SVG stroke arcs) and cost-by-room
   squarified treemap, both generated inline with no chart library.
 - **Photos**: images compressed to <=1280px JPEG before base64 storage;
@@ -307,10 +338,13 @@ Mobile-first, then a responsive frame for tablets/desktop:
   switch to two columns at the `md` breakpoint (groups use CSS multi-column with
   break-inside-avoid so accordions do not split).
 
-Styling is Tailwind (CDN) utility classes plus a small custom `<style>` block for
-animations, the dark theme overrides, the iOS-style theme switch, and the
-responsive overlay rules. Dark mode toggles a `.dark` class on `<html>`; a
-`.theme-anim` class enables a smooth color transition only during the flip.
+Styling is Tailwind utility classes, **precompiled with the Tailwind CLI and
+inlined** into `index.html` (no runtime CDN), plus a small custom `<style>` block
+for animations, the dark theme overrides, the iOS-style theme switch, the header
+history pill, and the responsive overlay rules. Inlining the compiled CSS means
+styles exist before first paint, so there is no flash of unstyled content on a
+cold open. Dark mode toggles a `.dark` class on `<html>`; a `.theme-anim` class
+enables a smooth color transition only during the flip.
 
 ---
 
@@ -318,7 +352,7 @@ responsive overlay rules. Dark mode toggles a `.dark` class on `<html>`; a
 
 | Library | Role | Loaded |
 |---|---|---|
-| Tailwind CSS | Utility styling | on page load |
+| Tailwind CSS | Utility styling | precompiled + inlined (no runtime dependency) |
 | SheetJS (xlsx) | Excel generation | on page load |
 | JSZip | Bundle xlsx + photos | on page load |
 | Transformers.js (Xenova) | On-device embeddings / Whisper / CLIP | lazy |
@@ -335,13 +369,15 @@ offline use after first load.
 
 ```mermaid
 flowchart TB
-  A["Agent walks the house"] -->|tap / voice / camera| H["handle(event)"]
-  H --> M["mutate P<br/>rooms · cells · photos · deal"]
+  A["Agent walks the house"] -->|tap / voice / camera / note| H["handle(event)"]
+  H --> M["mutate P<br/>rooms · cells · photos · deal · notes · contingency"]
   M --> S["save() to localStorage"]
+  M --> L["logActivity() -> history<br/>saveSnapshot() -> named checkpoints"]
   M --> R["render()<br/>header + active view + nav"]
-  M --> D["Deal Analyzer<br/>reads grandTotal() live"]
+  M --> D["Deal Analyzer<br/>reads bufferedTotal() live"]
   D --> V{"Verdict"}
   V --> GO["GO / CAUTION / NO-GO"]
+  L --> CMP["diffEstimate() -> Compare snapshot to now"]
   R --> OUT{"Output"}
   OUT --> X["Export: SheetJS xlsx + JSZip photos -> ZIP"]
   OUT --> P["Client report -> print / PDF"]

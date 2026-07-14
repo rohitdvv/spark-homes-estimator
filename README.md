@@ -25,7 +25,10 @@ product with an AI layer that runs **entirely on the device**:
 | 5 | **Offline semantic Copilot** | Chat + specialist agents (coverage, recommendations, anomaly) over the live estimate, no cloud |
 | 6 | **Deal Analyzer** | Live profit, ROI gauge, 70%-rule max offer, GO/CAUTION/NO-GO verdict |
 | 7 | **Backendless handoff** | Share a full estimate phone-to-phone via QR/link with no server |
-| 8 | **PIN lock + client report + real-address GPS** | Enterprise touches: app lock with recovery code, print-ready PDF, GPS address capture |
+| 8 | **Estimate history + snapshots** | Named checkpoints and a full activity timeline; compare any snapshot to now to prove your scope wasn't inflated after the fact |
+| 9 | **Contingency buffer** | A slider/typed % cushion (any value) that the Deal Analyzer plans around, so a "GO" stays a GO once reality hits |
+| 10 | **Inspection notes** | Timestamped, room-tagged field observations carried into the report, Excel, and email hand-off |
+| 11 | **PIN lock + client report + real-address GPS** | Enterprise touches: app lock with recovery code, print-ready PDF, GPS address capture |
 
 Everything works offline after one load; the AI models are bundled on demand via
 a one-tap **"Offline AI pack"** so an agent can prep on Wi-Fi then walk a
@@ -169,6 +172,23 @@ houses, work shared and presented):
   and offers a one-tap replacement line item ("water heater is 21 years old,
   past its 12-year life: add Hot Water Heater $1,425"). OCR runs on a
   preprocessed image (upscaled, grayscale, contrast-stretched) for accuracy.
+- **Estimate history + snapshots** (header): every meaningful change is logged
+  to an activity timeline (grouped by day), and you can freeze a named snapshot
+  ("First walkthrough", "Post-contractor visit") at any point. "Compare to now"
+  diffs a snapshot against the live estimate item by item, with the dollar
+  delta, so you can prove what your number was before a contractor re-walked it.
+  A snapshot captures scope, prices, rooms, deal inputs, the contingency %, and
+  notes; "Restore" reverts to it (auto-saving your current state first).
+- **Contingency buffer** (header + Deal tab): the real cost always runs higher
+  than the walkthrough (a pipe behind a wall, mold under the floor, a permit you
+  didn't plan for). A slider **and a typed number box** set any cushion, not
+  just fixed presets. The header shows the buffered "planning total" with a
+  `+X%` badge; the Deal Analyzer uses the buffered number for profit, ROI, the
+  verdict, and the 70%-rule max offer, so a "GO" can't hide a thin margin.
+- **Inspection notes** (Estimate tab): timestamped observations auto-tagged to
+  the current room ("water stain on hallway ceiling", "furnace looks 20+ yrs").
+  Notes print on the client report, export as their own Excel sheet, and are
+  included in the email hand-off and shared links.
 
 ---
 
@@ -190,7 +210,9 @@ managed from the home screen ("Manage standard pricing").
 ## Tech / libraries
 
 - **Vanilla JS + HTML + CSS** — no framework, no build.
-- **Tailwind CSS** (CDN) — utility styling + custom transitions.
+- **Tailwind CSS** — precompiled with the Tailwind CLI and **inlined** into
+  `index.html` (no runtime CDN), so styles exist before first paint and there is
+  no flash of unstyled content, online or off.
 - **SheetJS / xlsx** (CDN) — Excel generation.
 - **JSZip** (CDN) — bundles xlsx + photos into one ZIP.
 - **Tesseract.js** (CDN, lazy-loaded on first scan) — on-device serial-number OCR.
