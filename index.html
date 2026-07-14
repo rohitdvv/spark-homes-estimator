@@ -255,7 +255,7 @@ const LS = {
 const j = (k, fb) => { try { return JSON.parse(localStorage.getItem(k)) ?? fb; } catch { return fb; } };
 const setLS = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); return true; } catch { return false; } };
 
-const APP_VERSION = 'v46';
+const APP_VERSION = 'v47';
 let AGENT = j('spark_agent_v1', '');
 function setAgent(n){ AGENT = (n || '').trim(); setLS('spark_agent_v1', AGENT); }
 
@@ -965,6 +965,28 @@ function dealWaterfall(arv, purchase, repairs, holding, selling, totalCost, prof
 
 /* ---- Deal Analyzer (creative addition) ---- */
 function viewDeal() {
+  const d = P.deal;
+  const inp = (k, ph, pre) => `<div class="relative"><span class="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">${pre||''}</span><input data-act="deal" data-k="${k}" value="${esc(d[k])}" placeholder="${ph}" inputmode="decimal" class="w-full ${pre?'pl-7':'pl-3'} pr-3 py-2.5 rounded-xl border border-gray-200 font-semibold outline-none focus:border-spark" /></div>`;
+  return `
+  <div class="view px-4 py-4 space-y-4">
+    <div>
+      <h2 class="font-bold text-lg flex items-center gap-2">📊 Deal Analyzer</h2>
+      <p class="text-[12px] text-gray-400">Live profit projection from your live repair estimate.</p>
+    </div>
+    <div class="grid grid-cols-2 gap-3">
+      <div><label class="text-[11px] font-semibold text-gray-500 mb-1 block">After-Repair Value (ARV)</label>${inp('arv','280,000','$')}</div>
+      <div><label class="text-[11px] font-semibold text-gray-500 mb-1 block">Purchase Price</label>${inp('purchase','150,000','$')}</div>
+      <div><label class="text-[11px] font-semibold text-gray-500 mb-1 block">Hold Time (weeks)</label>${inp('weeks','8')}</div>
+      <div><label class="text-[11px] font-semibold text-gray-500 mb-1 block">Holding $/week</label>${inp('perWeek','350','$')}</div>
+      <div class="col-span-2"><label class="text-[11px] font-semibold text-gray-500 mb-1 block">Selling Costs (% of ARV)</label>${inp('sellPct','8','%')}</div>
+    </div>
+    <div id="dealOut" class="space-y-4">${dealOutHTML()}</div>
+  </div>`;
+}
+/* Deal results (verdict, gauge, waterfall, breakdown, contingency). Isolated
+   from the inputs so a keystroke re-renders only this block, never the inputs,
+   which keeps typing smooth with no focus loss and no entry-animation flash. */
+function dealOutHTML() {
   const d = P.deal; const repairs = bufferedTotal();
   const rawRep = grandTotal(), cpct = contingencyPct(), camt = contingencyAmt();
   const arv = +d.arv || 0, purchase = +d.purchase || 0;
@@ -979,24 +1001,8 @@ function viewDeal() {
   else if (profit >= 25000 && roi >= 15) { verdict='GO'; vc='bg-green-100 text-green-700'; vmsg='Healthy margin. Numbers support an offer.'; }
   else if (profit > 0) { verdict='CAUTION'; vc='bg-amber-100 text-amber-700'; vmsg='Thin margin. Recheck repairs and holding time.'; }
   else { verdict='NO-GO'; vc='bg-red-100 text-red-700'; vmsg='Projected loss at this price. Offer lower or walk.'; }
-
   const row = (l, v, sub) => `<div class="flex justify-between items-baseline py-2 border-b border-gray-100"><span class="text-gray-500 text-[13px]">${l}${sub?`<span class="block text-[10px] text-gray-300">${sub}</span>`:''}</span><span class="font-semibold">${v}</span></div>`;
-  const inp = (k, ph, pre) => `<div class="relative"><span class="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">${pre||''}</span><input data-act="deal" data-k="${k}" value="${esc(d[k])}" placeholder="${ph}" inputmode="decimal" class="w-full ${pre?'pl-7':'pl-3'} pr-3 py-2.5 rounded-xl border border-gray-200 font-semibold outline-none focus:border-spark" /></div>`;
-
   return `
-  <div class="view px-4 py-4 space-y-4">
-    <div>
-      <h2 class="font-bold text-lg flex items-center gap-2">📊 Deal Analyzer</h2>
-      <p class="text-[12px] text-gray-400">Live profit projection from your live repair estimate.</p>
-    </div>
-    <div class="grid grid-cols-2 gap-3">
-      <div><label class="text-[11px] font-semibold text-gray-500 mb-1 block">After-Repair Value (ARV)</label>${inp('arv','280,000','$')}</div>
-      <div><label class="text-[11px] font-semibold text-gray-500 mb-1 block">Purchase Price</label>${inp('purchase','150,000','$')}</div>
-      <div><label class="text-[11px] font-semibold text-gray-500 mb-1 block">Hold Time (weeks)</label>${inp('weeks','8')}</div>
-      <div><label class="text-[11px] font-semibold text-gray-500 mb-1 block">Holding $/week</label>${inp('perWeek','350','$')}</div>
-      <div class="col-span-2"><label class="text-[11px] font-semibold text-gray-500 mb-1 block">Selling Costs (% of ARV)</label>${inp('sellPct','8','%')}</div>
-    </div>
-
     <div class="bg-white rounded-2xl p-4 shadow-sm">
       <div class="flex items-center justify-between mb-1">
         <span class="text-[12px] font-semibold text-gray-400 uppercase">💰 Contingency buffer</span>
@@ -1043,8 +1049,7 @@ function viewDeal() {
         <div><div class="text-[11px] text-gray-400 font-semibold">70% RULE: Max Allowable Offer</div><div class="text-[10px] text-gray-500">ARV × 70% − repairs</div></div>
         <div class="font-extrabold text-2xl text-spark-500">${fmt(mao)}</div>
       </div>
-    </div>
-  </div>`;
+    </div>`;
 }
 
 /* =========================================================
@@ -1637,10 +1642,12 @@ function renderHome() {
     </header>
 
     <div class="flex-1 px-4 pt-9 pb-6">
-      <button data-act="new" class="press w-full py-3 mb-2 bg-spark text-white rounded-2xl font-bold text-base shadow-lg shadow-spark/30 flex items-center justify-center gap-2">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M12 5v14M5 12h14" stroke="white" stroke-width="2.6" stroke-linecap="round"/></svg>New Estimate
-      </button>
-      <button data-act="demo" class="press w-full py-2.5 mb-5 border-2 border-dashed border-spark-300 text-spark-700 rounded-2xl font-bold text-sm">✨ Load demo property</button>
+      <div class="flex gap-2 mb-5">
+        <button data-act="new" class="press flex-[1.7] py-2.5 bg-spark text-white rounded-xl font-bold text-[15px] shadow-lg shadow-spark/30 flex items-center justify-center gap-1.5">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none"><path d="M12 5v14M5 12h14" stroke="white" stroke-width="2.6" stroke-linecap="round"/></svg>New Estimate
+        </button>
+        <button data-act="demo" class="press flex-1 py-2.5 border-2 border-dashed border-spark-300 text-spark-700 rounded-xl font-bold text-[13px]">✨ Load demo</button>
+      </div>
       ${projects.length === 0 ? `
         <div class="text-center py-8">
           <div class="text-5xl mb-3">🏠</div>
@@ -2406,17 +2413,7 @@ function bind() {
   if (ci) ci.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); sendChat(); } });
   const ni = document.getElementById('noteIn');
   if (ni) ni.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); addNote(); } });
-  const cs = document.getElementById('ctSliderDeal');
-  if (cs) {
-    cs.addEventListener('input', () => contingencyLive(cs.value, 'ctSliderDeal'));
-    cs.addEventListener('change', () => { P.contingency = clampCont(cs.value); save(); render(); });
-  }
-  const cn = document.getElementById('ctNumDeal');
-  if (cn) {
-    cn.addEventListener('input', () => contingencyLive(cn.value, 'ctNumDeal'));
-    cn.addEventListener('change', () => { P.contingency = clampCont(cn.value); save(); render(); });
-    cn.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); cn.blur(); } });
-  }
+  wireContingencyDeal(document);
   const log = document.getElementById('chatlog');
   if (log) log.scrollTop = log.scrollHeight;
 }
@@ -2680,16 +2677,32 @@ function delProject(id) {
   render();
 }
 function softUpdateDeal() {
-  // lightweight: re-render only the deal view to keep inputs focused
+  // Re-render ONLY the results block, leaving the input fields untouched, so
+  // typing stays smooth: no focus loss, no caret jump, no entry-animation flash.
   if (UI.tab !== 'deal') return;
-  clearTimeout(softUpdateDeal._t);
-  softUpdateDeal._t = setTimeout(() => {
-    const main = $app.querySelector('main'); if (!main) return;
-    const active = document.activeElement; const k = active?.dataset?.k; const pos = active?.selectionStart;
-    main.innerHTML = viewDeal(); bind();
-    if (k) { const ne = main.querySelector(`[data-k="${k}"]`); if (ne) { ne.focus(); try{ne.setSelectionRange(pos,pos);}catch{} } }
-    document.getElementById('grand').textContent = fmt(grandTotal());
-  }, 300);
+  const out = document.getElementById('dealOut'); if (!out) return;
+  out.innerHTML = dealOutHTML();
+  bindDealOut();
+  const g = document.getElementById('grand'); if (g) g.textContent = fmt(displayTotal());
+}
+/* wire the interactive controls inside the (re-rendered) deal results block */
+function bindDealOut() {
+  const out = document.getElementById('dealOut'); if (!out) return;
+  out.querySelectorAll('[data-act]').forEach(el => el.addEventListener('click', handle));
+  wireContingencyDeal(out);
+}
+function wireContingencyDeal(root) {
+  const cs = root.querySelector('#ctSliderDeal');
+  if (cs) {
+    cs.addEventListener('input', () => contingencyLive(cs.value, 'ctSliderDeal'));
+    cs.addEventListener('change', () => { P.contingency = clampCont(cs.value); save(); render(); });
+  }
+  const cn = root.querySelector('#ctNumDeal');
+  if (cn) {
+    cn.addEventListener('input', () => contingencyLive(cn.value, 'ctNumDeal'));
+    cn.addEventListener('change', () => { P.contingency = clampCont(cn.value); save(); render(); });
+    cn.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); cn.blur(); } });
+  }
 }
 
 /* ---------- photos ---------- */
