@@ -252,7 +252,7 @@ const LS = {
 const j = (k, fb) => { try { return JSON.parse(localStorage.getItem(k)) ?? fb; } catch { return fb; } };
 const setLS = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); return true; } catch { return false; } };
 
-const APP_VERSION = 'v43';
+const APP_VERSION = 'v44';
 let AGENT = j('spark_agent_v1', '');
 function setAgent(n){ AGENT = (n || '').trim(); setLS('spark_agent_v1', AGENT); }
 
@@ -320,7 +320,11 @@ function blankProject(name) {
     nan: {},            // "roomId|groupId" -> true
     priceOverrides: {}, // itemId -> cost (per project)
     photos: [],         // {id,data,caption,serial}
-    deal: { arv: '', purchase: '', weeks: 8, perWeek: 350, sellPct: 8 }
+    deal: { arv: '', purchase: '', weeks: 8, perWeek: 350, sellPct: 8 },
+    contingency: 0,     // safety-buffer percentage on top of the raw estimate
+    notes: [],          // inspection notes: {id, ts, room, text}
+    history: [],        // activity log: {ts, action, item, room, group, detail}
+    snapshots: []       // named checkpoints: {id, name, ts, total, cells, nan, rooms, priceOverrides, deal}
   };
   // sensible defaults: the house-wide singletons + kitchen, bath, bedroom
   ['interior','systems','exterior','kitchen'].forEach(t => addRoom(p, t, true));
@@ -335,14 +339,17 @@ function addRoom(p, type, silent) {
   const name = t.single ? t.label : `${t.label} ${count + 1}`;
   const room = { id: 'r' + Math.random().toString(36).slice(2, 8), type, name };
   p.rooms.push(room);
-  if (!silent) { UI.roomId = room.id; save(); toast(name + ' added'); render(); }
+  if (!silent) { UI.roomId = room.id; logActivity('room', 'Added ' + name); save(); toast(name + ' added'); render(); }
   return room;
 }
 function removeRoom(roomId) {
+  const rm = P.rooms.find(r => r.id === roomId);
+  const rmName = rm ? rm.name : roomId;
   P.rooms = P.rooms.filter(r => r.id !== roomId);
   Object.keys(P.cells).forEach(k => { if (k.startsWith(roomId + '|')) delete P.cells[k]; });
   Object.keys(P.nan).forEach(k => { if (k.startsWith(roomId + '|')) delete P.nan[k]; });
   if (UI.roomId === roomId) UI.roomId = P.rooms[0]?.id || null;
+  logActivity('room', 'Removed ' + rmName);
   save(); render();
 }
 
@@ -390,6 +397,13 @@ function roomTotal(roomId) {
   return ROOM_TYPES[r.type].groups.reduce((s, g) => s + groupTotal(roomId, g), 0);
 }
 function grandTotal() { return P.rooms.reduce((s, r) => s + roomTotal(r.id), 0); }
+/* ---- Contingency buffer: a safety cushion on top of the raw estimate.
+   grandTotal() stays the raw sum of line items; bufferedTotal() is the
+   number an agent actually plans around, and the Deal Analyzer uses it. ---- */
+function contingencyPct() { return Math.max(0, Math.min(50, +((P && P.contingency)) || 0)); }
+function contingencyAmt() { return Math.round(grandTotal() * contingencyPct() / 100); }
+function bufferedTotal() { return grandTotal() + contingencyAmt(); }
+function displayTotal() { return contingencyPct() > 0 ? bufferedTotal() : grandTotal(); }
 
 function isChecked(roomId, gid, id) { const c = P.cells[cellKey(roomId, gid, id)]; return !!(c && c.q != null); }
 function groupChecked(roomId, gid) { return groupItemIds(gid).filter(id => isChecked(roomId, gid, id)).length; }
@@ -405,6 +419,104 @@ function progress() {
 const fmt  = n => '$' + Math.round(n).toLocaleString('en-US');
 const fmt2 = n => '$' + Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const esc  = s => String(s).replace(/[&<>"']/g, m => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[m]));
+
+/* ---------- 7b. ESTIMATE HISTORY & SNAPSHOTS ---------- */
+/* Activity log: records every meaningful mutation so the agent can
+   trace what changed, when. Capped at 200 entries. */
+function logActivity(action, detail) {
+  if (!P) return;
+  if (!P.history) P.history = [];
+  P.history.push({ ts: new Date().toISOString(), action, detail });
+  if (P.history.length > 200) P.history = P.history.slice(-200);
+}
+
+/* Snapshot: freeze a named copy of the estimate state */
+function saveSnapshot(name) {
+  if (!P) return;
+  if (!P.snapshots) P.snapshots = [];
+  const snap = {
+    id: 'sn' + Date.now().toString(36),
+    name: name || ('Snapshot ' + (P.snapshots.length + 1)),
+    ts: new Date().toISOString(),
+    total: grandTotal(),
+    cells: JSON.parse(JSON.stringify(P.cells)),
+    nan: JSON.parse(JSON.stringify(P.nan)),
+    rooms: JSON.parse(JSON.stringify(P.rooms)),
+    priceOverrides: JSON.parse(JSON.stringify(P.priceOverrides)),
+    deal: JSON.parse(JSON.stringify(P.deal)),
+    contingency: P.contingency || 0,
+    notes: JSON.parse(JSON.stringify(P.notes || []))
+  };
+  P.snapshots.push(snap);
+  if (P.snapshots.length > 20) P.snapshots = P.snapshots.slice(-20);
+  save();
+  return snap;
+}
+
+/* Restore: revert to a snapshot (auto-saves current state first) */
+function restoreSnapshot(snapId) {
+  if (!P) return;
+  const snap = P.snapshots.find(s => s.id === snapId);
+  if (!snap) return;
+  // auto-save current state as a snapshot before overwriting
+  saveSnapshot('Before restore — ' + new Date().toLocaleString());
+  P.cells = JSON.parse(JSON.stringify(snap.cells));
+  P.nan = JSON.parse(JSON.stringify(snap.nan));
+  P.rooms = JSON.parse(JSON.stringify(snap.rooms));
+  P.priceOverrides = JSON.parse(JSON.stringify(snap.priceOverrides));
+  P.deal = JSON.parse(JSON.stringify(snap.deal));
+  P.contingency = snap.contingency || 0;
+  P.notes = JSON.parse(JSON.stringify(snap.notes || []));
+  logActivity('restore', 'Restored snapshot "' + snap.name + '"');
+  UI.roomId = P.rooms[0]?.id || null;
+  save(); render();
+}
+
+/* Diff: compare two states (snapshot or current) */
+function diffEstimate(stateA, stateB, labelA, labelB) {
+  const result = { labelA, labelB, totalA: 0, totalB: 0, added: [], removed: [], changed: [], roomsAdded: [], roomsRemoved: [], dealChanges: [] };
+  // compute totals from cells
+  const cellTotal = (cells) => {
+    let t = 0;
+    Object.entries(cells).forEach(([k, c]) => {
+      const id = k.split('|')[2]; if (!id) return;
+      const it = itemById(id); if (!it) return;
+      t += (c.q || 0) * (stateA.priceOverrides?.[id] ?? GLOBAL.prices[id] ?? it.cost);
+    });
+    return t;
+  };
+  result.totalA = stateA.total != null ? stateA.total : cellTotal(stateA.cells || {});
+  result.totalB = stateB.total != null ? stateB.total : cellTotal(stateB.cells || {});
+
+  // cells diff
+  const allKeys = new Set([...Object.keys(stateA.cells || {}), ...Object.keys(stateB.cells || {})]);
+  allKeys.forEach(k => {
+    const a = (stateA.cells || {})[k], b = (stateB.cells || {})[k];
+    const id = k.split('|')[2]; const it = itemById(id);
+    const roomId = k.split('|')[0];
+    const roomA = (stateA.rooms || []).find(r => r.id === roomId);
+    const roomB = (stateB.rooms || []).find(r => r.id === roomId);
+    const roomName = (roomB || roomA || {}).name || roomId;
+    const name = it ? it.name : id;
+    if (!a && b) result.added.push({ name, room: roomName, qty: b.q, cost: b.q * (it ? (stateB.priceOverrides?.[id] ?? it.cost) : 0) });
+    else if (a && !b) result.removed.push({ name, room: roomName, qty: a.q, cost: a.q * (it ? (stateA.priceOverrides?.[id] ?? it.cost) : 0) });
+    else if (a && b && a.q !== b.q) result.changed.push({ name, room: roomName, oldQty: a.q, newQty: b.q, delta: (b.q - a.q) * (it ? (stateB.priceOverrides?.[id] ?? it.cost) : 0) });
+  });
+  // rooms diff
+  const ridsA = new Set((stateA.rooms || []).map(r => r.type + ':' + r.name));
+  const ridsB = new Set((stateB.rooms || []).map(r => r.type + ':' + r.name));
+  (stateB.rooms || []).forEach(r => { if (!ridsA.has(r.type + ':' + r.name)) result.roomsAdded.push(r.name); });
+  (stateA.rooms || []).forEach(r => { if (!ridsB.has(r.type + ':' + r.name)) result.roomsRemoved.push(r.name); });
+  // deal diff
+  const da = stateA.deal || {}, db = stateB.deal || {};
+  ['arv','purchase','weeks','perWeek','sellPct'].forEach(k => {
+    if (String(da[k] || '') !== String(db[k] || '')) {
+      const labels = { arv:'ARV', purchase:'Purchase Price', weeks:'Hold Time (weeks)', perWeek:'Holding $/week', sellPct:'Selling Cost %' };
+      result.dealChanges.push({ field: labels[k] || k, oldVal: da[k] || '—', newVal: db[k] || '—' });
+    }
+  });
+  return result;
+}
 
 /* =====================================================================
    8. RENDER
@@ -428,7 +540,7 @@ function render() {
   `;
   UI._dir = '';
   bind();
-  if (UI._countGrand){ UI._countGrand = false; countUp(document.getElementById('grand'), grandTotal(), v => fmt(v)); }
+  if (UI._countGrand){ UI._countGrand = false; countUp(document.getElementById('grand'), displayTotal(), v => fmt(v)); }
 }
 
 /* animate a number from 0 to its value: the total should feel earned */
@@ -458,11 +570,15 @@ function header(pr) {
         </button>
         <div class="text-[11px] text-gray-400">${pr.done}/${pr.total} groups reviewed</div>
       </div>
+      <button data-act="history" class="press text-gray-400 mr-0.5" aria-label="History" title="History &amp; snapshots">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none"><path d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
       ${darkBtn('mr-1')}
-      <div class="text-right">
-        <div class="text-[10px] uppercase tracking-wide text-gray-400 font-semibold">Estimate</div>
-        <div id="grand" class="text-xl font-extrabold text-spark leading-none money">${fmt(grandTotal())}</div>
-      </div>
+      <button data-act="contingency" class="press text-right" aria-label="Contingency buffer" title="Contingency buffer">
+        <div class="text-[10px] uppercase tracking-wide text-gray-400 font-semibold">Estimate${contingencyPct() > 0 ? ` <span class="text-spark">+${contingencyPct()}%</span>` : ''}</div>
+        <div id="grand" class="text-xl font-extrabold text-spark leading-none money">${fmt(displayTotal())}</div>
+        ${contingencyPct() > 0 ? `<div class="text-[9px] font-semibold text-gray-400 leading-tight">raw ${fmt(grandTotal())}</div>` : ''}
+      </button>
     </div>
     <div class="h-1.5 bg-gray-100">
       <div class="pfill h-full bg-gradient-to-r from-spark-500 to-spark" style="width:${pr.pct}%"></div>
@@ -536,7 +652,81 @@ function viewEstimate() {
       </button>
     </div>
     <div id="roomBody">${roomBodyHTML(room)}</div>
+    ${notesCard()}
   </div>`;
+}
+/* ---- Inspection notes: timestamped field observations, auto-tagged to the
+   current room, carried into the client report and the Excel export ---- */
+function notesCard(){
+  const notes = (P.notes || []).slice().reverse();
+  const room = P.rooms.find(r => r.id === UI.roomId);
+  return `
+  <div class="px-4 pt-1 pb-6">
+    <div class="bg-white rounded-2xl p-4 shadow-sm">
+      <div class="flex items-center justify-between mb-2">
+        <span class="text-[11px] font-bold text-gray-400 uppercase tracking-wide">📝 Inspection notes</span>
+        ${notes.length ? `<span class="text-[10px] text-gray-400">${notes.length} note${notes.length !== 1 ? 's' : ''}</span>` : ''}
+      </div>
+      <div class="flex gap-2 mb-3">
+        <input id="noteIn" placeholder="Observation${room ? ` for ${esc(room.name)}` : ''}…" class="flex-1 px-3 py-2.5 rounded-xl border border-gray-200 text-sm outline-none focus:border-spark" />
+        <button data-act="addnote" class="press px-4 rounded-xl bg-spark text-white font-bold text-sm">Add</button>
+      </div>
+      ${notes.length === 0
+        ? `<p class="text-[12px] text-gray-400 py-1 leading-snug">Jot what the numbers can't show: "water stain on hallway ceiling", "furnace looks 20+ yrs", "seller says roof is 3 years old". Each note is timestamped and printed on the client report.</p>`
+        : `<div class="space-y-2">${notes.map(n => `
+            <div class="flex items-start gap-2 bg-gray-50 rounded-xl p-2.5">
+              <div class="flex-1 min-w-0">
+                <div class="text-[13px] text-gray-700 leading-snug">${esc(n.text)}</div>
+                <div class="text-[10px] text-gray-400 mt-0.5">${n.room ? esc(n.room) + ' · ' : ''}${new Date(n.ts).toLocaleString('en-US', { month:'short', day:'numeric', hour:'numeric', minute:'2-digit' })}</div>
+              </div>
+              <button data-act="delnote" data-id="${n.id}" class="press text-gray-300 text-[13px] flex-shrink-0" aria-label="Delete note">🗑</button>
+            </div>`).join('')}</div>`}
+    </div>
+  </div>`;
+}
+function addNote(){
+  const el = document.getElementById('noteIn'); if (!el) return;
+  const text = el.value.trim(); if (!text) return;
+  if (!P.notes) P.notes = [];
+  const room = P.rooms.find(r => r.id === UI.roomId);
+  P.notes.push({ id: 'nt' + Date.now().toString(36), ts: new Date().toISOString(), room: room ? room.name : '', text });
+  logActivity('note', 'Note: ' + text);
+  save(); render(); toast('Note added ✓');
+}
+/* ---- Contingency modal: fine control (slider) + quick presets. Reachable
+   from the header total tap, anywhere in the app. ---- */
+function modalContingency(){
+  if (!P) return;
+  const raw = grandTotal();
+  modal(`<div class="px-5 pb-8 pt-2">
+    <h3 class="font-bold text-lg mb-1">💰 Contingency buffer</h3>
+    <p class="text-[12px] text-gray-400 mb-4 leading-snug">A safety cushion on top of the raw estimate. The real cost always runs higher than the walkthrough: a pipe behind a wall, mold under the floor, a permit you didn't plan for. The Deal Analyzer plans around this buffered number, so a "GO" stays a GO once reality hits.</p>
+    <div class="bg-gray-50 rounded-2xl p-4 mb-4">
+      <div class="flex justify-between text-[13px] py-1"><span class="text-gray-500">Raw estimate</span><span class="font-semibold">${fmt(raw)}</span></div>
+      <div class="flex justify-between text-[13px] py-1"><span class="text-gray-500">Contingency <span id="ctPctLbl" class="text-spark font-bold">+${contingencyPct()}%</span></span><span class="font-semibold text-spark" id="ctAmt">${fmt(Math.round(raw*contingencyPct()/100))}</span></div>
+      <div class="flex justify-between text-base pt-2 border-t border-gray-200 mt-1"><span class="font-bold">Buffered total</span><span class="font-extrabold text-spark" id="ctTotal">${fmt(raw+Math.round(raw*contingencyPct()/100))}</span></div>
+    </div>
+    <input id="ctSlider" type="range" min="0" max="25" step="1" value="${contingencyPct()}" class="w-full accent-spark mb-3" />
+    <div class="flex gap-2">
+      ${[0,5,10,15,20].map(v => `<button data-ctp="${v}" class="ctpreset press flex-1 py-2 rounded-xl text-[13px] font-bold ${v === contingencyPct() ? 'bg-spark text-white' : 'bg-gray-100 text-gray-500'}">${v}%</button>`).join('')}
+    </div>
+  </div>`);
+  setTimeout(() => {
+    const sl = document.getElementById('ctSlider');
+    const upd = (v) => {
+      v = Math.max(0, Math.min(50, Math.round(+v || 0)));
+      P.contingency = v;
+      const amt = Math.round(raw * v / 100);
+      const pl = document.getElementById('ctPctLbl'); if (pl) pl.textContent = '+' + v + '%';
+      const am = document.getElementById('ctAmt'); if (am) am.textContent = fmt(amt);
+      const tt = document.getElementById('ctTotal'); if (tt) tt.textContent = fmt(raw + amt);
+      document.querySelectorAll('.ctpreset').forEach(b => { const on = +b.dataset.ctp === v; b.className = 'ctpreset press flex-1 py-2 rounded-xl text-[13px] font-bold ' + (on ? 'bg-spark text-white' : 'bg-gray-100 text-gray-500'); });
+      if (sl && sl.value !== String(v)) sl.value = v;
+      saveSoon(); render(); // refresh the header/deal behind the open sheet
+    };
+    if (sl) sl.oninput = () => upd(sl.value);
+    document.querySelectorAll('.ctpreset').forEach(b => b.onclick = () => upd(+b.dataset.ctp));
+  }, 60);
 }
 function roomChipsHTML(room){
   return P.rooms.map(r => {
@@ -745,7 +935,8 @@ function dealWaterfall(arv, purchase, repairs, holding, selling, totalCost, prof
 
 /* ---- Deal Analyzer (creative addition) ---- */
 function viewDeal() {
-  const d = P.deal; const repairs = grandTotal();
+  const d = P.deal; const repairs = bufferedTotal();
+  const rawRep = grandTotal(), cpct = contingencyPct(), camt = contingencyAmt();
   const arv = +d.arv || 0, purchase = +d.purchase || 0;
   const holding = (+d.weeks || 0) * (+d.perWeek || 0);
   const selling = arv * ((+d.sellPct || 0) / 100);
@@ -776,6 +967,21 @@ function viewDeal() {
       <div class="col-span-2"><label class="text-[11px] font-semibold text-gray-500 mb-1 block">Selling Costs (% of ARV)</label>${inp('sellPct','8','%')}</div>
     </div>
 
+    <div class="bg-white rounded-2xl p-4 shadow-sm">
+      <div class="flex items-center justify-between mb-1">
+        <span class="text-[12px] font-semibold text-gray-400 uppercase">💰 Contingency buffer</span>
+        <span class="font-extrabold text-spark">+${cpct}%</span>
+      </div>
+      <p class="text-[11px] text-gray-400 mb-3 leading-snug">The real cost runs higher than the walkthrough. This cushion feeds the profit, ROI, and verdict below, so a GO stays a GO once reality hits.</p>
+      <div class="flex gap-2">
+        ${[0,5,10,15,20].map(v => `<button data-act="setcont" data-v="${v}" class="press flex-1 py-2 rounded-xl text-[13px] font-bold ${v === cpct ? 'bg-spark text-white' : 'bg-gray-100 text-gray-500'}">${v}%</button>`).join('')}
+      </div>
+      <div class="flex justify-between items-baseline text-[12px] mt-3 pt-2 border-t border-gray-100">
+        <span class="text-gray-500">Raw ${fmt(rawRep)} <span class="text-spark font-semibold">+ ${fmt(camt)}</span></span>
+        <span class="font-bold">Planning total ${fmt(repairs)}</span>
+      </div>
+    </div>
+
     <div class="rounded-2xl ${vc} p-4 pop">
       <div class="flex items-center justify-between">
         <span class="font-extrabold text-2xl tracking-tight">${verdict}</span>
@@ -789,7 +995,7 @@ function viewDeal() {
     ${dealWaterfall(arv, purchase, repairs, holding, selling, totalCost, profit)}
 
     <div class="bg-white rounded-2xl p-4 shadow-sm">
-      ${row('Repair estimate', fmt(repairs), 'live from this walkthrough')}
+      ${row('Repair estimate', fmt(repairs), cpct > 0 ? `${fmt(rawRep)} + ${cpct}% contingency` : 'live from this walkthrough')}
       ${row('Purchase price', fmt(purchase))}
       ${row('Holding costs', fmt(holding), `${d.weeks||0} wk × ${fmt2(+d.perWeek||0)}`)}
       ${row('Selling costs', fmt(selling), `${d.sellPct||0}% of ARV`)}
@@ -1113,11 +1319,11 @@ function computedAnswer(qRaw){
 
   // deal / profit  (now also catches "good deal", "should I walk/pass", gives a live verdict)
   if (/\bprofit\b|\bmargin\b|\broi\b|make money|worth it|good deal|bad deal|max allowable|\bmao\b|should i (buy|offer|walk|pass|bid)/.test(q)){
-    const d = P.deal, arv=+d.arv||0, pur=+d.purchase||0, rep=grandTotal();
+    const d = P.deal, arv=+d.arv||0, pur=+d.purchase||0, rep=bufferedTotal(), cp=contingencyPct();
     if (!arv||!pur) return 'Add ARV and purchase price on the Deal tab and I\'ll give you a live profit projection and a GO / CAUTION / NO-GO call.';
     const hold=(+d.weeks||0)*(+d.perWeek||0), sell=arv*((+d.sellPct||0)/100), profit=arv-(pur+rep+hold+sell);
     const verdict = profit>=25000 ? 'this looks like a GO' : profit>0 ? 'the margin is thin - CAUTION' : 'this is a NO-GO (projected loss)';
-    return `Projected profit is ${fmt(profit)}, so ${verdict}. (ARV ${fmt(arv)} − purchase ${fmt(pur)} − repairs ${fmt(rep)} − holding ${fmt(hold)} − selling ${fmt(sell)}.) Max Allowable Offer by the 70% rule is ${fmt(arv*0.7-rep)}.`;
+    return `Projected profit is ${fmt(profit)}, so ${verdict}. (ARV ${fmt(arv)} − purchase ${fmt(pur)} − repairs ${fmt(rep)}${cp>0?` (incl. ${cp}% contingency)`:''} − holding ${fmt(hold)} − selling ${fmt(sell)}.) Max Allowable Offer by the 70% rule is ${fmt(arv*0.7-rep)}.`;
   }
 
   return null; // no computed intent - defer to semantic / keyword retrieval
@@ -1361,7 +1567,7 @@ function renderWelcome(){
 
 function projectStat(p){
   const sP = P; P = p;
-  const rep = grandTotal(), pr = progress();
+  const rep = bufferedTotal(), pr = progress();
   const d = p.deal, arv=+d.arv||0, pur=+d.purchase||0, hold=(+d.weeks||0)*(+d.perWeek||0), sell=arv*((+d.sellPct||0)/100);
   const tc=pur+rep+hold+sell, profit=arv-tc, roi=tc>0?profit/tc*100:0, hasDeal=!!(arv&&pur);
   let verdict=null, vc='';
@@ -1693,6 +1899,12 @@ function loadDemo(){
   set('exterior','siding','ex-07',1600); set('exterior','windows','ex-14',8); set('exterior','garage','ex-21',1); set('exterior','fence','ex-03',120);
   const ext = p.rooms.find(r => r.type === 'exterior'); if (ext) p.nan[nanKey(ext.id, 'trees')] = true;
   p.deal = { arv:'289000', purchase:'158000', weeks:9, perWeek:375, sellPct:8 };
+  p.contingency = 10;
+  p.notes = [
+    { id:'ntd1', ts:new Date(Date.now()-1000*60*60*49).toISOString(), room:'Systems & Structure', text:'Furnace data plate reads 2018 - near end of life, replacement is budgeted.' },
+    { id:'ntd2', ts:new Date(Date.now()-1000*60*60*48).toISOString(), room:'Bathroom 1', text:'Water stain under the vanity - check the supply line for a slow leak before close.' },
+    { id:'ntd3', ts:new Date(Date.now()-1000*60*35).toISOString(), room:'Exterior', text:'Seller says the roof is 3 years old; no visible damage from the ground.' }
+  ];
   try {
     const c = document.createElement('canvas'); c.width=400; c.height=300; const x=c.getContext('2d');
     x.fillStyle='#334155'; x.fillRect(0,0,400,300);
@@ -1714,14 +1926,15 @@ function loadScript(src){ return new Promise((res, rej) => { const s = document.
 async function ensureLZ(){ if (!window.LZString) await loadScript('https://cdn.jsdelivr.net/npm/lz-string@1.5.0/libs/lz-string.min.js'); }
 async function ensureQR(){ if (!window.qrcode) await loadScript('https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.js'); }
 function shareUrl(p){
-  const slim = { v:1, name:p.name, address:p.address, rooms:p.rooms, cells:p.cells, nan:p.nan, priceOverrides:p.priceOverrides, deal:p.deal };
+  const slim = { v:1, name:p.name, address:p.address, rooms:p.rooms, cells:p.cells, nan:p.nan, priceOverrides:p.priceOverrides, deal:p.deal, contingency:p.contingency||0, notes:p.notes||[] };
   return location.origin + location.pathname + '#import=' + LZString.compressToEncodedURIComponent(JSON.stringify(slim));
 }
 function projectFromShare(d){
   return { id:'p'+Date.now().toString(36), name:d.name||'Imported estimate', address:d.address||'',
     createdAt:new Date().toISOString(), savedAt:new Date().toISOString(),
     rooms:d.rooms||[], cells:d.cells||{}, nan:d.nan||{}, priceOverrides:d.priceOverrides||{}, photos:[],
-    deal:d.deal||{ arv:'', purchase:'', weeks:8, perWeek:350, sellPct:8 } };
+    deal:d.deal||{ arv:'', purchase:'', weeks:8, perWeek:350, sellPct:8 },
+    contingency:d.contingency||0, notes:d.notes||[], history:[], snapshots:[] };
 }
 async function handleImport(){
   const m = location.hash.match(/import=([^&]+)/); if (!m) return false;
@@ -1735,6 +1948,181 @@ async function handleImport(){
     return true;
   } catch (e) { history.replaceState(null, '', location.pathname); return false; }
 }
+/* ---- History & Snapshots modal ---- */
+function modalHistory(tab) {
+  if (!P) return;
+  const activeTab = tab || 'timeline';
+  const history = P.history || [];
+  const snapshots = P.snapshots || [];
+
+  // group history by day
+  const today = new Date(); today.setHours(0,0,0,0);
+  const yesterday = new Date(today); yesterday.setDate(yesterday.getDate()-1);
+  const groups = {};
+  history.slice().reverse().forEach(h => {
+    const d = new Date(h.ts); d.setHours(0,0,0,0);
+    const key = d.getTime() === today.getTime() ? 'Today'
+      : d.getTime() === yesterday.getTime() ? 'Yesterday'
+      : d.toLocaleDateString('en-US', { month:'short', day:'numeric' });
+    if (!groups[key]) groups[key] = [];
+    groups[key].push(h);
+  });
+
+  const actionIcon = a => ({ add:'🔧', remove:'🗑', update:'📐', nan:'⏭', room:'🏠', price:'💲', deal:'💰', restore:'📸', snapshot:'📸', note:'📝' }[a] || '📝');
+  const fmtTime = ts => new Date(ts).toLocaleTimeString('en-US', { hour:'numeric', minute:'2-digit' });
+
+  const timelineHTML = history.length === 0
+    ? `<div class="text-center py-8"><div class="text-3xl mb-2">📜</div><p class="text-gray-400 text-sm">No activity yet. Start making changes to see the timeline.</p></div>`
+    : Object.entries(groups).map(([day, items]) => `
+        <div class="mb-3">
+          <div class="text-[10px] font-bold text-gray-400 uppercase tracking-wide mb-1.5">${esc(day)}</div>
+          <div class="space-y-1">
+            ${items.map(h => `
+              <div class="flex items-start gap-2 py-1.5 px-2 rounded-lg bg-gray-50 text-[13px]">
+                <span class="flex-shrink-0 mt-0.5">${actionIcon(h.action)}</span>
+                <div class="flex-1 min-w-0">
+                  <div class="text-gray-700 leading-snug">${esc(h.detail)}</div>
+                  <div class="text-[10px] text-gray-400 mt-0.5">${fmtTime(h.ts)}</div>
+                </div>
+              </div>`).join('')}
+          </div>
+        </div>`).join('');
+
+  const snapshotsHTML = `
+    <button id="snapSaveBtn" class="press w-full py-3 mb-3 bg-spark text-white rounded-xl font-bold flex items-center justify-center gap-2">
+      📸 Save Snapshot
+    </button>
+    ${snapshots.length === 0
+      ? `<div class="text-center py-6"><p class="text-gray-400 text-sm">No snapshots yet. Save one to freeze your estimate at this point.</p></div>`
+      : `<div class="space-y-2">${snapshots.slice().reverse().map(s => `
+          <div class="bg-gray-50 rounded-xl p-3">
+            <div class="flex items-start justify-between gap-2 mb-1">
+              <div class="min-w-0">
+                <div class="font-semibold text-[14px] truncate">${esc(s.name)}</div>
+                <div class="text-[11px] text-gray-400">${new Date(s.ts).toLocaleString('en-US', { month:'short', day:'numeric', hour:'numeric', minute:'2-digit' })}</div>
+              </div>
+              <div class="text-right flex-shrink-0">
+                <div class="font-extrabold text-spark">${fmt(s.total)}</div>
+                <div class="text-[10px] text-gray-400">${(s.rooms||[]).length} rooms · ${Object.keys(s.cells||{}).length} items</div>
+              </div>
+            </div>
+            <div class="flex gap-1.5 mt-2">
+              <button data-act="snapdiff" data-id="${s.id}" class="press flex-1 py-1.5 text-[12px] font-semibold border border-gray-200 rounded-lg text-gray-600">Compare to now</button>
+              <button data-act="snaprestore" data-id="${s.id}" class="press flex-1 py-1.5 text-[12px] font-semibold border border-spark-200 rounded-lg text-spark">Restore</button>
+              <button data-act="snapdelete" data-id="${s.id}" class="press py-1.5 px-2 text-[12px] text-gray-300 font-semibold">🗑</button>
+            </div>
+          </div>`).join('')}
+        </div>`}`;
+
+  modal(`<div class="px-5 pb-8 pt-2">
+    <h3 class="font-bold text-lg mb-3">📜 History & Snapshots</h3>
+    <div class="flex gap-1 mb-4">
+      <button id="htTab_timeline" class="press flex-1 py-2 text-[13px] font-bold rounded-xl ${activeTab==='timeline'?'bg-spark text-white':'bg-gray-100 text-gray-500'}">Activity Timeline</button>
+      <button id="htTab_snapshots" class="press flex-1 py-2 text-[13px] font-bold rounded-xl ${activeTab==='snapshots'?'bg-spark text-white':'bg-gray-100 text-gray-500'}">Snapshots (${snapshots.length})</button>
+    </div>
+    <div id="htContent" class="max-h-72 overflow-y-auto">
+      ${activeTab === 'timeline' ? timelineHTML : snapshotsHTML}
+    </div>
+    ${activeTab === 'timeline' && history.length > 0 ? `
+      <button data-act="clearhistory" class="press w-full mt-3 py-2 text-[12px] text-gray-400 font-semibold">Clear history</button>
+    ` : ''}
+  </div>`);
+
+  // wire tab switching
+  setTimeout(() => {
+    const tl = document.getElementById('htTab_timeline');
+    const sn = document.getElementById('htTab_snapshots');
+    if (tl) tl.onclick = () => { closeModal(); modalHistory('timeline'); };
+    if (sn) sn.onclick = () => { closeModal(); modalHistory('snapshots'); };
+    // wire snapshot save button
+    const sb = document.getElementById('snapSaveBtn');
+    if (sb) sb.onclick = () => {
+      const name = prompt('Snapshot name:', 'Snapshot ' + ((P.snapshots||[]).length + 1));
+      if (name === null) return;
+      saveSnapshot(name || undefined);
+      logActivity('snapshot', 'Saved snapshot "' + (name || 'Snapshot ' + (P.snapshots||[]).length) + '"');
+      toast('Snapshot saved ✓');
+      closeModal(); modalHistory('snapshots');
+    };
+  }, 80);
+}
+
+/* ---- Snapshot diff modal ---- */
+function modalSnapDiff(snapId) {
+  if (!P) return;
+  const snap = (P.snapshots||[]).find(s => s.id === snapId);
+  if (!snap) { toast('Snapshot not found'); return; }
+  const current = { cells: P.cells, nan: P.nan, rooms: P.rooms, priceOverrides: P.priceOverrides, deal: P.deal, total: grandTotal() };
+  const diff = diffEstimate(snap, current, snap.name, 'Current');
+  const delta = diff.totalB - diff.totalA;
+  const deltaColor = delta > 0 ? 'text-red-500' : delta < 0 ? 'text-green-600' : 'text-gray-500';
+  const deltaSign = delta > 0 ? '+' : '';
+
+  const section = (icon, title, items, renderItem) => {
+    if (!items || items.length === 0) return '';
+    return `<div class="mt-3">
+      <div class="text-[11px] font-bold text-gray-400 uppercase mb-1.5">${icon} ${title} (${items.length})</div>
+      <div class="space-y-1">${items.map(renderItem).join('')}</div>
+    </div>`;
+  };
+
+  const html = `<div class="px-5 pb-8 pt-2">
+    <h3 class="font-bold text-lg mb-1">📊 Compare</h3>
+    <p class="text-[12px] text-gray-400 mb-3">"${esc(snap.name)}" → Current estimate</p>
+    <div class="bg-gray-50 rounded-xl p-3 flex items-center justify-between mb-3">
+      <div class="text-center">
+        <div class="text-[10px] text-gray-400 font-semibold">${esc(snap.name)}</div>
+        <div class="font-extrabold text-lg">${fmt(diff.totalA)}</div>
+      </div>
+      <div class="text-center px-3">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none"><path d="M5 12h14m0 0l-4-4m4 4l-4 4" stroke="#94a3b8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </div>
+      <div class="text-center">
+        <div class="text-[10px] text-gray-400 font-semibold">Current</div>
+        <div class="font-extrabold text-lg">${fmt(diff.totalB)}</div>
+      </div>
+      <div class="text-center pl-3 border-l border-gray-200 ml-2">
+        <div class="text-[10px] text-gray-400 font-semibold">Delta</div>
+        <div class="font-extrabold text-lg ${deltaColor}">${deltaSign}${fmt(Math.abs(delta))}</div>
+      </div>
+    </div>
+    <div class="max-h-72 overflow-y-auto">
+      ${section('⬆', 'Added', diff.added, a => `
+        <div class="flex justify-between items-baseline px-2 py-1.5 bg-green-100 rounded-lg text-[13px]">
+          <span class="text-green-700">+ ${esc(a.name)} <span class="text-[11px] text-green-600 opacity-70">×${a.qty}</span></span>
+          <span class="text-green-700 font-semibold">${fmt(a.cost)}</span>
+        </div>`)}
+      ${section('⬇', 'Removed', diff.removed, a => `
+        <div class="flex justify-between items-baseline px-2 py-1.5 bg-red-100 rounded-lg text-[13px]">
+          <span class="text-red-700">− ${esc(a.name)} <span class="text-[11px] text-red-600 opacity-70">×${a.qty}</span></span>
+          <span class="text-red-700 font-semibold">-${fmt(a.cost)}</span>
+        </div>`)}
+      ${section('✏', 'Changed', diff.changed, a => `
+        <div class="flex justify-between items-baseline px-2 py-1.5 bg-amber-100 rounded-lg text-[13px]">
+          <span class="text-amber-700">${esc(a.name)} <span class="text-[11px] text-amber-600 opacity-70">${a.oldQty} → ${a.newQty}</span></span>
+          <span class="text-amber-700 font-semibold">${a.delta>0?'+':''}${fmt(a.delta)}</span>
+        </div>`)}
+      ${diff.roomsAdded.length || diff.roomsRemoved.length ? `<div class="mt-3">
+        <div class="text-[11px] font-bold text-gray-400 uppercase mb-1.5">🏠 Rooms</div>
+        ${diff.roomsAdded.map(r => `<div class="text-[13px] text-green-700 px-2 py-1">+ ${esc(r)}</div>`).join('')}
+        ${diff.roomsRemoved.map(r => `<div class="text-[13px] text-red-700 px-2 py-1">− ${esc(r)}</div>`).join('')}
+      </div>` : ''}
+      ${diff.dealChanges.length ? `<div class="mt-3">
+        <div class="text-[11px] font-bold text-gray-400 uppercase mb-1.5">💰 Deal</div>
+        ${diff.dealChanges.map(d => `<div class="text-[13px] text-gray-600 px-2 py-1">${esc(d.field)}: ${esc(d.oldVal)} → ${esc(d.newVal)}</div>`).join('')}
+      </div>` : ''}
+      ${diff.added.length === 0 && diff.removed.length === 0 && diff.changed.length === 0 && diff.roomsAdded.length === 0 && diff.roomsRemoved.length === 0 && diff.dealChanges.length === 0
+        ? `<div class="text-center py-6 text-gray-400 text-sm">No differences found. The estimate is identical.</div>` : ''}
+    </div>
+    <button id="snapDiffBack" class="press w-full mt-3 py-2.5 border border-gray-200 rounded-xl font-semibold text-gray-600 text-sm">← Back to history</button>
+  </div>`;
+  modal(html);
+  setTimeout(() => {
+    const back = document.getElementById('snapDiffBack');
+    if (back) back.onclick = () => { closeModal(); modalHistory('snapshots'); };
+  }, 80);
+}
+
 async function modalShare(){
   modal(`<div class="px-5 pb-8 pt-2 text-center">
     <h3 class="font-bold text-lg mb-1">Share estimate</h3>
@@ -1767,7 +2155,7 @@ async function modalShare(){
 
 /* ---- Branded client report: a print / save-as-PDF document ---- */
 function clientReport(){
-  const d = P.deal, repairs = grandTotal();
+  const d = P.deal, rawRep = grandTotal(), cpct = contingencyPct(), camt = contingencyAmt(), repairs = bufferedTotal();
   const arv=+d.arv||0, pur=+d.purchase||0, hold=(+d.weeks||0)*(+d.perWeek||0), sell=arv*((+d.sellPct||0)/100);
   const tc=pur+repairs+hold+sell, profit=arv-tc, roi=tc>0?profit/tc*100:0, mao=arv*0.7-repairs, hasDeal=!!(arv&&pur);
   let verdict='', vcolor='#64748b';
@@ -1802,14 +2190,15 @@ function clientReport(){
   .noprint{margin:18px 0;text-align:center}button{background:#d05000;color:#fff;border:0;padding:10px 22px;border-radius:10px;font-weight:700;font-size:14px;cursor:pointer}
   @media print{.noprint{display:none}body{padding:0}}</style></head><body>
   <div class="top"><div><img src="${logo}" onerror="this.style.display='none'"/><h1>Repair Estimate</h1><div class="sub">${esc(P.name||'Property')} &middot; ${new Date().toLocaleDateString()}</div></div>
-  <div><div class="glabel">Estimated repairs</div><div class="grand">${fmt(repairs)}</div></div></div>
+  <div><div class="glabel">${cpct>0?'Planning total (buffered)':'Estimated repairs'}</div><div class="grand">${fmt(repairs)}</div>${cpct>0?`<div class="glabel" style="font-weight:600;color:#64748b">raw ${fmt(rawRep)} + ${cpct}% contingency</div>`:''}</div></div>
   ${hasDeal?`<div style="margin-bottom:14px"><span class="verdict" style="background:${vcolor}">${verdict}</span><span style="font-size:13px;margin-left:10px">Projected profit <b>${fmt(profit)}</b> &middot; Return ${roi.toFixed(0)}% &middot; Max offer ${fmt(mao)}</span></div>`:''}
   <div class="grid">
     <div class="card"><h2>Summary</h2>
       <div class="kv"><span>Rooms</span><b>${P.rooms.length}</b></div>
       <div class="kv"><span>Groups reviewed</span><b>${pr.done}/${pr.total}</b></div>
       <div class="kv"><span>Photos</span><b>${P.photos.length}</b></div>
-      <div class="kv"><span>Repair total</span><b>${fmt(repairs)}</b></div>
+      <div class="kv"><span>Raw repair total</span><b>${fmt(rawRep)}</b></div>
+      ${cpct>0?`<div class="kv"><span>Contingency (+${cpct}%)</span><b>${fmt(camt)}</b></div><div class="kv"><span>Planning total</span><b>${fmt(repairs)}</b></div>`:''}
       <div class="kv"><span>Inspected by</span><b>${esc(AGENT || 'Unassigned')}</b></div></div>
     <div class="card"><h2>Cost by section</h2>
       ${secRows.map(([s,v])=>`<div class="secrow"><div class="lab"><span>${esc(s)}</span><span>${fmt(v)}</span></div><div class="bar" style="width:${Math.max(6,v/maxSec*100)}%"></div></div>`).join('')||'<div style="font-size:12px;color:#94a3b8">Nothing selected.</div>'}</div>
@@ -1818,6 +2207,8 @@ function clientReport(){
   <div style="max-width:460px;margin:0 auto">${houseXraySVG(true)}</div>
   <h2 class="sec">Scope of work</h2>
   ${roomBlocks||'<div style="font-size:13px;color:#94a3b8">No items selected yet.</div>'}
+  ${(P.notes&&P.notes.length)?`<h2 class="sec">Inspection notes</h2>
+  <div style="font-size:12.5px">${P.notes.map(n=>`<div style="display:flex;gap:8px;padding:5px 0;border-bottom:1px solid #f1f5f9"><span style="color:#0f172a;flex:1">${esc(n.text)}</span><span style="color:#94a3b8;white-space:nowrap">${n.room?esc(n.room)+' · ':''}${new Date(n.ts).toLocaleDateString('en-US',{month:'short',day:'numeric'})}</span></div>`).join('')}</div>`:''}
   ${photos?`<h2 class="sec">Photos</h2>${photos}`:''}
   <div class="noprint"><button onclick="window.print()">Print / Save as PDF</button></div>
   <div class="foot">${AGENT ? 'Inspected by ' + esc(AGENT) + ' &middot; ' : ''}Generated by Spark Homes Repair Estimator &middot; ${new Date().toLocaleString()}</div>
@@ -1841,7 +2232,8 @@ function clientReport(){
 /* ---- Email summary: one tap composes the office hand-off email ---- */
 function emailSummary(){
   const pr = progress();
-  const d = P.deal, arv = +d.arv || 0, pur = +d.purchase || 0, rep = grandTotal();
+  const d = P.deal, arv = +d.arv || 0, pur = +d.purchase || 0;
+  const rawRep = grandTotal(), cpct = contingencyPct(), rep = bufferedTotal();
   const hold = (+d.weeks || 0) * (+d.perWeek || 0), sell = arv * ((+d.sellPct || 0) / 100);
   const tc = pur + rep + hold + sell, profit = arv - tc, roi = tc > 0 ? profit / tc * 100 : 0;
   const secs = {}; P.rooms.forEach(r => { const s = ROOM_TYPES[r.type].section; secs[s] = (secs[s] || 0) + roomTotal(r.id); });
@@ -1851,10 +2243,15 @@ function emailSummary(){
     'Inspected by: ' + (AGENT || 'Unassigned'),
     'Date: ' + new Date().toLocaleDateString(),
     '',
-    'TOTAL REPAIRS: ' + fmt(rep) + ' (' + pr.done + '/' + pr.total + ' groups reviewed)',
+    cpct > 0
+      ? 'PLANNING TOTAL: ' + fmt(rep) + ' (raw ' + fmt(rawRep) + ' + ' + cpct + '% contingency, ' + pr.done + '/' + pr.total + ' groups reviewed)'
+      : 'TOTAL REPAIRS: ' + fmt(rep) + ' (' + pr.done + '/' + pr.total + ' groups reviewed)',
     ...Object.entries(secs).filter(([,v]) => v > 0).map(([s,v]) => '  - ' + s + ': ' + fmt(v)),
     ''
   ].filter(l => l !== '');
+  if (P.notes && P.notes.length) {
+    lines.push('INSPECTION NOTES:', ...P.notes.map(n => '  - ' + (n.room ? n.room + ': ' : '') + n.text), '');
+  }
   if (arv && pur){
     const verdict = (profit >= 25000 && roi >= 15) ? 'GO' : profit > 0 ? 'CAUTION' : 'NO-GO';
     lines.push('', 'DEAL VERDICT: ' + verdict,
@@ -1872,7 +2269,7 @@ function modalCompare(){
   const sP = P;
   const rows = projects.map(p => {
     P = p;
-    const repairs = grandTotal();
+    const repairs = bufferedTotal();
     const d = p.deal, arv = +d.arv || 0, pur = +d.purchase || 0;
     const hold = (+d.weeks||0)*(+d.perWeek||0), sell = arv*((+d.sellPct||0)/100);
     const tc = pur + repairs + hold + sell, profit = arv - tc, roi = tc > 0 ? profit/tc*100 : 0;
@@ -1970,6 +2367,8 @@ function bind() {
   });
   const ci = document.getElementById('chatin');
   if (ci) ci.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); sendChat(); } });
+  const ni = document.getElementById('noteIn');
+  if (ni) ni.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); addNote(); } });
   const log = document.getElementById('chatlog');
   if (log) log.scrollTop = log.scrollHeight;
 }
@@ -2008,7 +2407,15 @@ function handle(e) {
     case 'agefix': { const ph = P.photos.find(p => p.id === d.id); const ai = ph && ph.ageInfo;
       if (ai && ai.item){ const room = addLineToRoomType(ai.item, ai.room, ai.group, 1); if (room) toast(ai.label + ' replacement added to ' + room.name + ' ✓', 3500); render(); } break; }
     case 'delphoto': delPhoto(d.id); break;
-    case 'deal': P.deal[d.k] = el.value; saveSoon(); softUpdateDeal(); break;
+    case 'deal': {
+      const oldVal = P.deal[d.k]; P.deal[d.k] = el.value; saveSoon(); softUpdateDeal();
+      // debounced history logging for deal changes
+      clearTimeout(handle._dealLogT);
+      handle._dealLogT = setTimeout(() => {
+        const labels = { arv:'ARV', purchase:'Purchase Price', weeks:'Hold Time', perWeek:'Holding $/week', sellPct:'Selling Cost %' };
+        if (String(oldVal) !== String(el.value)) logActivity('deal', (labels[d.k] || d.k) + ': ' + (oldVal || '—') + ' → ' + (el.value || '—'));
+      }, 1500);
+      break; }
     case 'export': doExport(); break;
     case 'delproj': confirmDel('Delete this estimate permanently?', () => delProject(d.id)); break;
     case 'globalprice': modalGlobalPrice(); break;
@@ -2030,6 +2437,15 @@ function handle(e) {
     case 'share': modalShare(); break;
     case 'report': clientReport(); break;
     case 'emailsum': emailSummary(); break;
+    case 'history': modalHistory(); break;
+    case 'contingency': modalContingency(); break;
+    case 'setcont': P.contingency = Math.max(0, Math.min(50, +d.v || 0)); logActivity('deal', 'Contingency buffer set to ' + P.contingency + '%'); save(); render(); break;
+    case 'addnote': addNote(); break;
+    case 'delnote': P.notes = (P.notes || []).filter(n => n.id !== d.id); save(); render(); break;
+    case 'snaprestore': confirmDel('Restore this snapshot? Your current state will be auto-saved first.', () => { restoreSnapshot(d.id); toast('Snapshot restored ✓'); }); break;
+    case 'snapdelete': confirmDel('Delete this snapshot?', () => { P.snapshots = (P.snapshots||[]).filter(s => s.id !== d.id); save(); modalHistory('snapshots'); }); break;
+    case 'snapdiff': modalSnapDiff(d.id); break;
+    case 'clearhistory': confirmDel('Clear the activity history for this estimate?', () => { P.history = []; save(); modalHistory('timeline'); toast('History cleared'); }); break;
   }
 }
 
@@ -2037,6 +2453,8 @@ function handle(e) {
 function applyRec(r, g, i) {
   P.cells[cellKey(r, g, i)] = { q: 1 };
   if (P.nan[nanKey(r, g)]) delete P.nan[nanKey(r, g)];
+  const it = itemById(i);
+  logActivity('add', (it ? it.name : i) + ' (Copilot recommendation)');
   save(); render(); toast(itemById(i).name + ' added');
 }
 async function sendChat() {
@@ -2124,35 +2542,64 @@ function handleModal(e) {
 /* ---------- action helpers ---------- */
 function toggleCheck(r, g, i) {
   const k = cellKey(r, g, i);
-  if (P.cells[k]) delete P.cells[k];
-  else { P.cells[k] = { q: 1 }; if (P.nan[nanKey(r,g)]) delete P.nan[nanKey(r,g)]; }
+  const it = itemById(i);
+  const rm = P.rooms.find(x => x.id === r);
+  if (P.cells[k]) {
+    delete P.cells[k];
+    logActivity('remove', (it ? it.name : i) + (rm ? ' (' + rm.name + ')' : ''));
+  } else {
+    P.cells[k] = { q: 1 };
+    if (P.nan[nanKey(r,g)]) delete P.nan[nanKey(r,g)];
+    logActivity('add', (it ? it.name : i) + (rm ? ' (' + rm.name + ')' : ''));
+  }
   save(); render();
 }
 function toggleNan(k, on) {
+  const parts = k.split('|');
+  const rm = P.rooms.find(x => x.id === parts[0]);
+  const gl = GROUPS[parts[1]];
   if (on) {
     P.nan[k] = true;
-    // clear any checked items in that group
     Object.keys(P.cells).forEach(ck => { if (ck.startsWith(k + '|')) delete P.cells[ck]; });
-  } else delete P.nan[k];
+    logActivity('nan', (gl ? gl.label : parts[1]) + ' → No Action Needed' + (rm ? ' (' + rm.name + ')' : ''));
+  } else {
+    delete P.nan[k];
+    logActivity('nan', (gl ? gl.label : parts[1]) + ' → unmarked' + (rm ? ' (' + rm.name + ')' : ''));
+  }
   save(); render();
 }
 function stepQty(r, g, i, dlt) {
   const k = cellKey(r, g, i); const c = P.cells[k] || { q: 1 };
+  const oldQ = c.q || 1;
   c.q = Math.max(0, Math.round(((c.q || 1) + dlt) * 100) / 100);
-  P.cells[k] = c; save(); render();
+  P.cells[k] = c;
+  const it = itemById(i);
+  logActivity('update', (it ? it.name : i) + ' qty ' + oldQ + ' → ' + c.q);
+  save(); render();
 }
 function setQty(r, g, i, val) {
   const k = cellKey(r, g, i); const n = parseFloat(val);
-  P.cells[k] = { q: isNaN(n) ? 0 : Math.max(0, n) }; save(); render();
+  const old = P.cells[k] ? P.cells[k].q : 0;
+  P.cells[k] = { q: isNaN(n) ? 0 : Math.max(0, n) };
+  const it = itemById(i);
+  logActivity('update', (it ? it.name : i) + ' qty ' + old + ' → ' + P.cells[k].q);
+  save(); render();
 }
 function savePrice(id, scope) {
   const v = parseFloat(document.getElementById('priceInput').value);
   if (isNaN(v) || v < 0) { toast('Enter a valid price'); return; }
+  const it = itemById(id);
+  const oldPrice = priceOf(id);
   if (scope === 'project') { P.priceOverrides[id] = v; save(); }
   else { GLOBAL.prices[id] = v; saveGlobal(); }
+  logActivity('price', (it ? it.name : id) + ' ' + fmt2(oldPrice) + ' → ' + fmt2(v) + ' (' + scope + ')');
   closeModal(); render(); toast(scope === 'global' ? 'Standard price updated' : 'Price set for project');
 }
-function resetPrice(id) { delete P.priceOverrides[id]; delete GLOBAL.prices[id]; save(); saveGlobal(); closeModal(); render(); toast('Reset to default'); }
+function resetPrice(id) {
+  const it = itemById(id);
+  logActivity('price', (it ? it.name : id) + ' price reset to default');
+  delete P.priceOverrides[id]; delete GLOBAL.prices[id]; save(); saveGlobal(); closeModal(); render(); toast('Reset to default');
+}
 function saveCustomItem(gid) {
   const name = document.getElementById('ci_name').value.trim();
   const cost = parseFloat(document.getElementById('ci_cost').value);
@@ -3026,18 +3473,30 @@ async function doExport() {
     ws['!cols'] = [{wch:16},{wch:20},{wch:22},{wch:38},{wch:6},{wch:12},{wch:12},{wch:14}];
     XLSX.utils.book_append_sheet(wb, ws, 'Estimate');
 
-    // Deal analysis sheet
+    // Deal analysis sheet (uses the buffered repair total)
+    const cpct = contingencyPct(), camt = Math.round(grand * cpct / 100), buffered = grand + camt;
     const d = P.deal, arv = +d.arv||0, pur = +d.purchase||0, hold = (+d.weeks||0)*(+d.perWeek||0), sell = arv*((+d.sellPct||0)/100);
-    const tc = pur+grand+hold+sell, profit = arv-tc;
+    const tc = pur+buffered+hold+sell, profit = arv-tc;
     const dws = XLSX.utils.aoa_to_sheet([
       ['DEAL ANALYSIS'], [],
-      ['After-Repair Value', arv], ['Purchase Price', pur], ['Repair Estimate', grand],
+      ['After-Repair Value', arv], ['Purchase Price', pur],
+      ['Raw Repair Estimate', grand], ['Contingency %', cpct/100], ['Contingency Amount', camt],
+      ['Buffered Repair Estimate', buffered],
       ['Holding Costs', hold], ['Selling Costs', sell], ['Total Cost Basis', tc],
       ['Projected Profit', profit], ['Return on Cost', tc?(profit/tc):0],
-      ['70% Rule Max Offer', arv*0.7-grand]
+      ['70% Rule Max Offer', arv*0.7-buffered]
     ]);
-    dws['!cols']=[{wch:24},{wch:16}];
+    dws['!cols']=[{wch:26},{wch:16}];
     XLSX.utils.book_append_sheet(wb, dws, 'Deal Analysis');
+
+    // Inspection notes sheet
+    if (P.notes && P.notes.length) {
+      const nrows = [['INSPECTION NOTES'], [], ['Date', 'Room', 'Note']];
+      P.notes.forEach(n => nrows.push([new Date(n.ts).toLocaleString(), n.room || '', n.text]));
+      const nws = XLSX.utils.aoa_to_sheet(nrows);
+      nws['!cols'] = [{wch:20},{wch:16},{wch:60}];
+      XLSX.utils.book_append_sheet(wb, nws, 'Inspection Notes');
+    }
 
     const xlsxBuf = XLSX.write(wb, { type: 'array', bookType: 'xlsx' });
 

@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Spark Homes — Build Writeup</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+<style>
+  @page {
+    size: letter;
+    margin: 0.55in 0.6in 0.5in 0.6in;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body {
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    font-size: 10.5px;
+    line-height: 1.52;
+    color: #1a1a1a;
+    -webkit-font-smoothing: antialiased;
+    background: #fff;
+  }
+  .page {
+    max-width: 7.5in;
+    margin: 0 auto;
+    padding: 0.5in 0.6in;
+  }
+  @media print {
+    .page { padding: 0; max-width: none; }
+    .no-print { display: none !important; }
+  }
+
+  /* ---- Header ---- */
+  .header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    border-bottom: 2.5px solid #d05000;
+    padding-bottom: 8px;
+    margin-bottom: 14px;
+  }
+  .header h1 {
+    font-size: 20px;
+    font-weight: 800;
+    color: #d05000;
+    letter-spacing: -0.3px;
+  }
+  .header .meta {
+    text-align: right;
+    font-size: 9px;
+    color: #666;
+    line-height: 1.5;
+  }
+
+  /* ---- Sections ---- */
+  .section {
+    margin-bottom: 13px;
+  }
+  .section-title {
+    font-size: 12px;
+    font-weight: 700;
+    color: #d05000;
+    margin-bottom: 4px;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+  }
+  .section-title .num {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: #d05000;
+    color: #fff;
+    font-size: 10px;
+    font-weight: 700;
+    flex-shrink: 0;
+  }
+  .section p, .section li {
+    font-size: 10.5px;
+    color: #2a2a2a;
+  }
+  .section ul {
+    padding-left: 16px;
+    margin-top: 3px;
+  }
+  .section li {
+    margin-bottom: 2px;
+  }
+  .section li::marker {
+    color: #d05000;
+  }
+  strong { font-weight: 600; }
+  em { font-style: italic; color: #555; }
+
+  /* ---- AI Role box ---- */
+  .ai-box {
+    margin-top: 13px;
+    border: 1.5px solid #d05000;
+    border-radius: 6px;
+    padding: 8px 12px;
+  }
+  .ai-box .section-title { margin-bottom: 3px; }
+
+  /* ---- Footer ---- */
+  .footer {
+    margin-top: 14px;
+    padding-top: 6px;
+    border-top: 1px solid #ddd;
+    font-size: 8.5px;
+    color: #999;
+    text-align: center;
+  }
+
+  /* Print button */
+  .print-btn {
+    display: block;
+    margin: 20px auto;
+    padding: 10px 32px;
+    background: #d05000;
+    color: #fff;
+    border: none;
+    border-radius: 8px;
+    font-family: inherit;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .print-btn:hover { background: #b84400; }
+</style>
+</head>
+<body>
+
+<button class="print-btn no-print" onclick="window.print()">🖨️ Print / Save as PDF</button>
+
+<div class="page">
+
+  <!-- HEADER -->
+  <div class="header">
+    <h1>Spark Homes — Build Writeup</h1>
+    <div class="meta">
+      Repair Cost Estimator &nbsp;·&nbsp; Offline-First PWA<br/>
+      Single-file, zero-backend, on-device AI
+    </div>
+  </div>
+
+  <!-- 1. MOST INTERESTING DESIGN / UX DECISION -->
+  <div class="section">
+    <div class="section-title"><span class="num">1</span> Most Interesting Design / UX Decision</div>
+    <p>
+      <strong>Composite flat-map keying instead of nested data.</strong>
+      The entire estimate is stored as a flat <code>cells</code> map keyed by <code>"roomId|groupId|itemId"</code>. 
+      Every room, group, and line-item interaction resolves to a single string lookup—no tree traversal, 
+      no recursive serialization. This was a counterintuitive choice for a hierarchical UI (rooms → groups → items), 
+      but it made the hardest operations trivial: deleting a room is a prefix sweep over <code>Object.keys</code>; 
+      computing a room total is a filter + reduce over matching keys; the entire state serializes to <code>localStorage</code>
+      in one <code>JSON.stringify</code>. It also enabled the single <code>render()</code> function: since the data is flat, 
+      the view can be built in one pass with template literals, no component tree needed. The trade-off is that the key scheme 
+      is fragile to format changes—but for a contest-scoped app, the simplicity won. 
+      This design also eliminated a full class of bugs around stale references to deleted rooms or renumbered groups 
+      that plagued an earlier prototype with nested objects.
+    </p>
+  </div>
+
+  <!-- 2. WHAT IS BROKEN / FRAGILE -->
+  <div class="section">
+    <div class="section-title"><span class="num">2</span> What Is Broken or Fragile</div>
+    <ul>
+      <li><strong>localStorage quota on large projects.</strong> Photos are base64-encoded and stored inline. A thorough inspection with 50+ high-res photos can approach the ~5 MB localStorage limit on some browsers, causing silent save failures. The code compresses images to ≤1280 px and wraps writes with a quota check, but there is no graceful migration to IndexedDB—a production version would need that.</li>
+      <li><strong>Full re-render on every mutation.</strong> The <code>render()</code>-rebuilds-everything pattern is clean but causes scroll-position loss and input-focus jank on fast interactions (rapid quantity tapping, deal-tab typing). Targeted partial re-renders exist for the worst cases, but it's a band-aid; a virtual-DOM diff or keyed reconciliation would be the real fix.</li>
+      <li><strong>AI model load time.</strong> The Whisper + CLIP + MiniLM offline pack is ~90 MB total. First download on slow connections can time out or stall with no resume. The models are cached permanently after that, but there's no chunked/resumable download, and error recovery is limited to "try again."</li>
+      <li><strong>Single-file scale.</strong> At 3,100+ lines and 230 KB of JS/HTML/CSS in one file, <code>index.html</code> is nearing the limit of what's maintainable without a module system. IDE features like go-to-definition become slow; a production follow-up would split into ES modules behind a minimal bundler.</li>
+    </ul>
+  </div>
+
+  <!-- 3. CREATIVE ADDITION -->
+  <div class="section">
+    <div class="section-title"><span class="num">3</span> Creative Addition &amp; Why</div>
+    <p>
+      <strong>The Deal Analyzer + AI Copilot layer</strong>—built as a single creative system, not a cosmetic feature.
+    </p>
+    <ul>
+      <li><strong>Deal Analyzer:</strong> The brief says the repair estimate is the most important number—but an estimate in isolation doesn't answer the real question: <em>"Should I buy this house?"</em> The Deal Analyzer pulls the live repair total, adds ARV, purchase price, holding costs, and selling costs, then projects profit, ROI, and a 70%-rule max offer with a GO / CAUTION / NO-GO verdict. The agent gets a buy-or-walk decision <em>while still standing in the house</em>.</li>
+      <li><strong>AI Copilot:</strong> Four specialist modules—Inspection Coverage (flags missed big-ticket systems), Recommendations (commonly-paired work like "flooring → trim-out"), Anomaly &amp; Risk (outlier quantities, price-override fraud, conflicting scope), and a semantic chat Assistant backed by on-device embeddings (MiniLM) over a repair-guidelines knowledge base. All 100% offline, no API key, no server. I chose this because the brief's multi-agent/RAG requirements shouldn't be faked with canned responses—this delivers the architecture and value on-device.</li>
+      <li><strong>Voice Walkthrough + Camera Scope Detection:</strong> Narrate repairs hands-free ("kitchen, cabinets, five doors"); on-device Whisper transcribes, a synonym+semantic matcher adds items with correct quantities. Point the camera at a fixture; CLIP classifies it and suggests the line item. Both work offline.</li>
+    </ul>
+  </div>
+
+  <!-- 4. WHAT I'D SHIP NEXT -->
+  <div class="section">
+    <div class="section-title"><span class="num">4</span> What I'd Ship Next (Two More Days)</div>
+    <ul>
+      <li><strong>IndexedDB photo storage + multi-device cloud sync.</strong> Migrate photos from base64-in-localStorage to IndexedDB blobs (removes the quota wall), then add optional Firebase/Supabase sync with conflict resolution so a team of agents can share estimates live. The flat-key data model makes merge logic straightforward—last-write-wins per cell key.</li>
+      <li><strong>Comp-based ARV assistant.</strong> Integrate a public MLS data source (Redfin/Zillow API or a scraped comps feed) so the Deal Analyzer can auto-suggest an ARV from recent sold comps instead of relying on manual input. Display comps on a map with price/sqft overlays and confidence bands. This closes the last manual gap in the deal math flow.</li>
+    </ul>
+  </div>
+
+  <!-- AI ROLE -->
+  <div class="ai-box">
+    <div class="section-title">🤖 Role of AI Tools in Development</div>
+    <p>
+      AI coding assistants (Claude, Gemini) were used extensively as a <strong>pair-programming partner</strong> 
+      throughout the build. Specifically: <strong>(a)</strong> architecture brainstorming—sketching the flat-key data model, 
+      the layered Copilot resolver, and the offline-first service-worker strategy; <strong>(b)</strong> rapid prototyping—generating 
+      boilerplate for the 108-item price list mapping, SVG chart code (donut arcs, waterfall, speedometer gauge), and the 
+      semantic-search pipeline; <strong>(c)</strong> debugging—diagnosing scroll-position bugs in the re-render loop, iOS PWA 
+      quirks, and Transformers.js WASM threading issues; <strong>(d)</strong> writing—drafting README, ARCHITECTURE.md, and 
+      this writeup. All AI-generated code was reviewed, tested, and iterated by hand. The AI did not autonomously design 
+      features or make product decisions; it accelerated implementation of decisions I made.
+    </p>
+  </div>
+
+  <!-- FOOTER -->
+  <div class="footer">
+    Spark Homes Repair Estimator &nbsp;·&nbsp; github.com/rohitdvv/spark-homes-estimator &nbsp;·&nbsp; Built as a single self-contained HTML file, offline-first PWA
+  </div>
+
+</div>
+
+</body>
+</html>
