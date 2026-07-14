@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Spark Homes — Build Writeup</title>
+<title>Spark Homes: Build Writeup</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
 <style>
   @page {
@@ -138,7 +138,7 @@
 
   <!-- HEADER -->
   <div class="header">
-    <h1>Spark Homes — Build Writeup</h1>
+    <h1>Spark Homes: Build Writeup</h1>
     <div class="meta">
       Repair Cost Estimator &nbsp;·&nbsp; Offline-First PWA<br/>
       Single-file, zero-backend, on-device AI
@@ -151,7 +151,7 @@
     <p>
       <strong>Composite flat-map keying instead of nested data.</strong>
       The entire estimate is stored as a flat <code>cells</code> map keyed by <code>"roomId|groupId|itemId"</code>. 
-      Every room, group, and line-item interaction resolves to a single string lookup—no tree traversal, 
+      Every room, group, and line-item interaction resolves to a single string lookup, no tree traversal,
       no recursive serialization. This was a counterintuitive choice for a hierarchical UI (rooms → groups → items),
       but it made the hardest operations trivial: deleting a room is a prefix sweep over <code>Object.keys</code>;
       computing a room total is a filter + reduce over matching keys; the entire state serializes to <code>localStorage</code>
@@ -167,7 +167,7 @@
   <div class="section">
     <div class="section-title"><span class="num">2</span> What Is Broken or Fragile</div>
     <ul>
-      <li><strong>localStorage quota on large projects.</strong> Photos are base64-encoded and stored inline. A thorough inspection with 50+ high-res photos can approach the ~5 MB localStorage limit on some browsers, causing silent save failures. The code compresses images to ≤1280 px and wraps writes with a quota check, but there is no graceful migration to IndexedDB—a production version would need that.</li>
+      <li><strong>localStorage quota on large projects.</strong> Photos are base64-encoded and stored inline. A thorough inspection with 50+ high-res photos can approach the ~5 MB localStorage limit on some browsers, causing silent save failures. The code compresses images to ≤1280 px and wraps writes with a quota check, but there is no graceful migration to IndexedDB, which a production version would need.</li>
       <li><strong>Full re-render on every mutation.</strong> The <code>render()</code>-rebuilds-everything pattern is clean but causes scroll-position loss and input-focus jank on fast interactions (rapid quantity tapping, deal-tab typing). Targeted partial re-renders exist for the worst cases, but it's a band-aid; a virtual-DOM diff or keyed reconciliation would be the real fix.</li>
       <li><strong>AI model load time.</strong> The Whisper + CLIP + MiniLM offline pack is ~90 MB total. First download on slow connections can time out or stall with no resume. The models are cached permanently after that, but there's no chunked/resumable download, and error recovery is limited to "try again."</li>
       <li><strong>Single-file scale.</strong> At 3,650+ lines and 260 KB of JS/HTML/CSS in one file, <code>index.html</code> is nearing the limit of what's maintainable without a module system. IDE features like go-to-definition become slow; a production follow-up would split into ES modules behind a minimal bundler.</li>
@@ -178,11 +178,11 @@
   <div class="section">
     <div class="section-title"><span class="num">3</span> Creative Addition &amp; Why</div>
     <p>
-      <strong>The Deal Analyzer + AI Copilot layer</strong>—built as a single creative system, not a cosmetic feature.
+      <strong>The Deal Analyzer + AI Copilot layer</strong>, built as a single creative system, not a cosmetic feature.
     </p>
     <ul>
-      <li><strong>Deal Analyzer:</strong> The brief says the repair estimate is the most important number—but an estimate in isolation doesn't answer the real question: <em>"Should I buy this house?"</em> The Deal Analyzer pulls the live repair total, adds ARV, purchase price, holding costs, and selling costs, then projects profit, ROI, and a 70%-rule max offer with a GO / CAUTION / NO-GO verdict. The agent gets a buy-or-walk decision <em>while still standing in the house</em>.</li>
-      <li><strong>AI Copilot:</strong> Four specialist modules—Inspection Coverage (flags missed big-ticket systems), Recommendations (commonly-paired work like "flooring → trim-out"), Anomaly &amp; Risk (outlier quantities, price-override fraud, conflicting scope), and a semantic chat Assistant backed by on-device embeddings (MiniLM) over a repair-guidelines knowledge base. All 100% offline, no API key, no server. I chose this because the brief's multi-agent/RAG requirements shouldn't be faked with canned responses—this delivers the architecture and value on-device.</li>
+      <li><strong>Deal Analyzer:</strong> The brief says the repair estimate is the most important number, but an estimate in isolation doesn't answer the real question: <em>"Should I buy this house?"</em> The Deal Analyzer pulls the live repair total, adds ARV, purchase price, holding costs, and selling costs, then projects profit, ROI, and a 70%-rule max offer with a GO / CAUTION / NO-GO verdict. The agent gets a buy-or-walk decision <em>while still standing in the house</em>.</li>
+      <li><strong>AI Copilot:</strong> Four specialist modules: Inspection Coverage (flags missed big-ticket systems), Recommendations (commonly-paired work like "flooring → trim-out"), Anomaly &amp; Risk (outlier quantities, price-override fraud, conflicting scope), and a semantic chat Assistant backed by on-device embeddings (MiniLM) over a repair-guidelines knowledge base. All 100% offline, no API key, no server. I chose this because the brief's multi-agent/RAG requirements shouldn't be faked with canned responses; this delivers the architecture and value on-device.</li>
       <li><strong>Voice Walkthrough + Camera Scope Detection:</strong> Narrate repairs hands-free ("kitchen, cabinets, five doors"); on-device Whisper transcribes, a synonym+semantic matcher adds items with correct quantities. Point the camera at a fixture; CLIP classifies it and suggests the line item. Both work offline.</li>
       <li><strong>Field-trust layer:</strong> because an agent is betting real money, I added a <em>contingency buffer</em> (slider or typed %, folded into the profit/verdict so a "GO" can't hide a thin margin), <em>estimate history with named snapshots</em> (compare any snapshot to now, item by item, to prove the scope wasn't inflated after a contractor re-walk), and timestamped, room-tagged <em>inspection notes</em> carried into the report and Excel. These turn a calculator into a tool an agent would actually trust.</li>
     </ul>
@@ -192,7 +192,7 @@
   <div class="section">
     <div class="section-title"><span class="num">4</span> What I'd Ship Next (Two More Days)</div>
     <ul>
-      <li><strong>IndexedDB photo storage + multi-device cloud sync.</strong> Migrate photos from base64-in-localStorage to IndexedDB blobs (removes the quota wall), then add optional Firebase/Supabase sync with conflict resolution so a team of agents can share estimates live. The flat-key data model makes merge logic straightforward—last-write-wins per cell key.</li>
+      <li><strong>IndexedDB photo storage + multi-device cloud sync.</strong> Migrate photos from base64-in-localStorage to IndexedDB blobs (removes the quota wall), then add optional Firebase/Supabase sync with conflict resolution so a team of agents can share estimates live. The flat-key data model makes merge logic straightforward: last-write-wins per cell key.</li>
       <li><strong>Comp-based ARV assistant.</strong> Integrate a public MLS data source (Redfin/Zillow API or a scraped comps feed) so the Deal Analyzer can auto-suggest an ARV from recent sold comps instead of relying on manual input. Display comps on a map with price/sqft overlays and confidence bands. This closes the last manual gap in the deal math flow.</li>
     </ul>
   </div>
