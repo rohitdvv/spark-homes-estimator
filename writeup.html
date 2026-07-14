@@ -149,28 +149,27 @@
   <div class="section">
     <div class="section-title"><span class="num">1</span> Most Interesting Design / UX Decision</div>
     <p>
-      <strong>Composite flat-map keying instead of nested data.</strong>
-      The entire estimate is stored as a flat <code>cells</code> map keyed by <code>"roomId|groupId|itemId"</code>. 
-      Every room, group, and line-item interaction resolves to a single string lookup, no tree traversal,
-      no recursive serialization. This was a counterintuitive choice for a hierarchical UI (rooms → groups → items),
-      but it made the hardest operations trivial: deleting a room is a prefix sweep over <code>Object.keys</code>;
-      computing a room total is a filter + reduce over matching keys; the entire state serializes to <code>localStorage</code>
-      in one <code>JSON.stringify</code>. It also enabled the single <code>render()</code> function: since the data is flat,
-      the view can be built in one pass with template literals, no component tree needed. The same flat model made snapshots
-      and diffing nearly free (a snapshot is one deep copy; comparing versions is a set-difference over keys).
-      The trade-off is a key scheme that's fragile to format changes, but for a contest-scoped app the simplicity won,
-      and it eliminated a whole class of stale-reference bugs from deleted rooms and renumbered groups.
+      <strong>The House X-Ray live cost map.</strong>
+      Instead of a flat checklist with a total at the bottom, the estimate renders as a labeled cross-section of a
+      house (roof, a systems band, room boxes, a foundation strip) that heats up orange in real time as cost accrues
+      to each zone, so the biggest driver is visible at a glance rather than buried in a list. Tapping a zone jumps to
+      that room and lights it up with a soft glow, while the room chips and the item list below stay in sync. It turns
+      an abstract dollar figure into something an agent can read like a heat map <em>while standing in the property</em>.
+      What makes it cheap is the flat data model underneath: the whole estimate is one <code>cells</code> map keyed by
+      <code>"roomId|groupId|itemId"</code>, so each zone total is a filter + reduce over matching keys, recomputed on
+      every render with no tree traversal and no extra bookkeeping. That same flat model makes the single
+      <code>render()</code> pass, plus snapshots and version diffing, nearly free (a snapshot is one deep copy; comparing
+      versions is a set-difference over keys).
     </p>
   </div>
 
   <!-- 2. WHAT IS BROKEN / FRAGILE -->
   <div class="section">
     <div class="section-title"><span class="num">2</span> What Is Broken or Fragile</div>
+    <p style="margin-bottom:5px">Two honest trade-offs I made for the offline, single-file constraint, each with a clear path to harden:</p>
     <ul>
-      <li><strong>localStorage quota on large projects.</strong> Photos are base64-encoded and stored inline. A thorough inspection with 50+ high-res photos can approach the ~5 MB localStorage limit on some browsers, causing silent save failures. The code compresses images to ≤1280 px and wraps writes with a quota check, but there is no graceful migration to IndexedDB, which a production version would need.</li>
-      <li><strong>Full re-render on every mutation.</strong> The <code>render()</code>-rebuilds-everything pattern is clean but causes scroll-position loss and input-focus jank on fast interactions (rapid quantity tapping, deal-tab typing). Targeted partial re-renders exist for the worst cases, but it's a band-aid; a virtual-DOM diff or keyed reconciliation would be the real fix.</li>
-      <li><strong>AI model load time.</strong> The Whisper + CLIP + MiniLM offline pack is ~90 MB total. First download on slow connections can time out or stall with no resume. The models are cached permanently after that, but there's no chunked/resumable download, and error recovery is limited to "try again."</li>
-      <li><strong>Single-file scale.</strong> At 3,650+ lines and 260 KB of JS/HTML/CSS in one file, <code>index.html</code> is nearing the limit of what's maintainable without a module system. IDE features like go-to-definition become slow; a production follow-up would split into ES modules behind a minimal bundler.</li>
+      <li><strong>localStorage as the datastore.</strong> Photos are base64-encoded inline, so a heavy inspection with 50+ high-res photos can approach the ~5 MB localStorage limit on some browsers. I compress images to ≤1280 px and guard every write with a quota check, so it fails safe rather than silently, but the real fix is moving photo blobs to IndexedDB. That is the first thing I would harden for production.</li>
+      <li><strong>Full re-render on every mutation.</strong> Rebuilding the whole screen from state keeps the code simple and predictable, but it can cost scroll position and input focus on rapid interactions. I already added targeted partial re-renders for the hot paths (room switching, deal inputs, the contingency slider); a keyed reconciliation step would remove the remaining jank in the general case.</li>
     </ul>
   </div>
 
@@ -185,6 +184,7 @@
       <li><strong>AI Copilot:</strong> Four specialist modules: Inspection Coverage (flags missed big-ticket systems), Recommendations (commonly-paired work like "flooring → trim-out"), Anomaly &amp; Risk (outlier quantities, price-override fraud, conflicting scope), and a semantic chat Assistant backed by on-device embeddings (MiniLM) over a repair-guidelines knowledge base. All 100% offline, no API key, no server. I chose this because the brief's multi-agent/RAG requirements shouldn't be faked with canned responses; this delivers the architecture and value on-device.</li>
       <li><strong>Voice Walkthrough + Camera Scope Detection:</strong> Narrate repairs hands-free ("kitchen, cabinets, five doors"); on-device Whisper transcribes, a synonym+semantic matcher adds items with correct quantities. Point the camera at a fixture; CLIP classifies it and suggests the line item. Both work offline.</li>
       <li><strong>Field-trust layer:</strong> because an agent is betting real money, I added a <em>contingency buffer</em> (slider or typed %, folded into the profit/verdict so a "GO" can't hide a thin margin), <em>estimate history with named snapshots</em> (compare any snapshot to now, item by item, to prove the scope wasn't inflated after a contractor re-walk), and timestamped, room-tagged <em>inspection notes</em> carried into the report and Excel. These turn a calculator into a tool an agent would actually trust.</li>
+      <li><strong>Backendless handoff:</strong> a finished estimate compresses into the URL hash and shows as a <em>QR code or copy-link</em>, so it imports onto another agent's phone with no server; a one-tap <em>email hand-off</em> drops a formatted summary (totals, section breakdown, verdict, notes) to the office. Sharing and reporting without any backend keeps the whole product inside the offline rule.</li>
     </ul>
   </div>
 
@@ -192,8 +192,8 @@
   <div class="section">
     <div class="section-title"><span class="num">4</span> What I'd Ship Next (Two More Days)</div>
     <ul>
-      <li><strong>IndexedDB photo storage + multi-device cloud sync.</strong> Migrate photos from base64-in-localStorage to IndexedDB blobs (removes the quota wall), then add optional Firebase/Supabase sync with conflict resolution so a team of agents can share estimates live. The flat-key data model makes merge logic straightforward: last-write-wins per cell key.</li>
-      <li><strong>Comp-based ARV assistant.</strong> Integrate a public MLS data source (Redfin/Zillow API or a scraped comps feed) so the Deal Analyzer can auto-suggest an ARV from recent sold comps instead of relying on manual input. Display comps on a map with price/sqft overlays and confidence bands. This closes the last manual gap in the deal math flow.</li>
+      <li><strong>AR room capture (WebXR).</strong> Use the phone camera and WebXR depth to measure a room live, auto-filling square-footage quantities (flooring, paint, tile) instead of hand-entering them, and let the agent pin repair annotations in 3D space that replay as a walkthrough the office can review. It extends the on-device-vision theme from "classify a fixture" to "measure and map the whole room," and would still run without a server. The two-day version targets one AR measurement flow feeding the flooring and paint line items.</li>
+      <li><strong>Comp-based ARV assistant.</strong> Integrate a public comps source (Redfin/Zillow API or a scraped feed) so the Deal Analyzer auto-suggests an ARV from recent sold comps instead of relying on manual input, shown on a map with price/sqft overlays. This closes the last manual gap in the deal math flow. (Alongside this, the production hardening from section 2: photo blobs in IndexedDB, then optional multi-device sync.)</li>
     </ul>
   </div>
 
