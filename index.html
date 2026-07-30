@@ -2,7 +2,8 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="description" content="Spark Homes Repair Estimator: an offline-first field tool for real-estate acquisition agents. Walk a property room by room, capture scope by voice or camera with on-device AI, get an instant buy/walk verdict, and hand a client-ready report or Excel to the office. No signal required." />
 <meta name="theme-color" content="#d05000" />
 <meta name="apple-mobile-web-app-capable" content="yes" />
 <meta name="mobile-web-app-capable" content="yes" />
@@ -253,7 +254,7 @@ const LS = {
 const j = (k, fb) => { try { return JSON.parse(localStorage.getItem(k)) ?? fb; } catch { return fb; } };
 const setLS = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); return true; } catch { return false; } };
 
-const APP_VERSION = 'v48';
+const APP_VERSION = 'v49';
 let AGENT = j('spark_agent_v1', '');
 function setAgent(n){ AGENT = (n || '').trim(); setLS('spark_agent_v1', AGENT); }
 
@@ -1584,15 +1585,15 @@ function bottomNav() {
 /* ---- First-run onboarding: ask the agent's name once ---- */
 function renderWelcome(){
   $app.innerHTML = `
-  <div class="flex flex-col justify-center px-7 text-white" style="min-height:100dvh;background:linear-gradient(160deg,#233350,#0b1220)">
-    <span class="logo-chip inline-flex self-start items-center bg-white rounded-xl px-3 py-2 mb-8"><img src="./spark-logo.png" class="h-7 w-auto" onerror="this.parentNode.style.display='none'"/></span>
+  <main class="flex flex-col justify-center px-7 text-white" style="min-height:100dvh;background:linear-gradient(160deg,#233350,#0b1220)">
+    <span class="logo-chip inline-flex self-start items-center bg-white rounded-xl px-3 py-2 mb-8"><img src="./spark-logo.png" alt="Spark Group" class="h-7 w-auto" onerror="this.parentNode.style.display='none'"/></span>
     <h1 class="text-2xl font-extrabold">Welcome</h1>
     <p class="text-white/60 text-sm mt-1.5 mb-6 leading-snug">Let\'s set up your estimator. What should we call you? Your name is printed on every report you generate, so the office knows who inspected the property.</p>
     <input id="wcName" placeholder="Your name" enterkeyhint="done" autocomplete="name"
       class="w-full px-4 py-3 rounded-xl bg-white/10 text-white placeholder-white/40 outline-none focus:ring-2 ring-spark font-semibold mb-3"/>
     <button id="wcGo" class="press w-full py-3.5 bg-spark rounded-xl font-bold">Get started</button>
     <button id="wcSkip" class="press w-full py-2.5 mt-1 text-white/50 text-sm font-semibold">Skip for now</button>
-  </div>`;
+  </main>`;
   const done = (skip) => {
     const v = (document.getElementById('wcName').value || '').trim();
     if (!skip && v) setAgent(v);
@@ -1629,7 +1630,7 @@ function renderHome() {
   <div class="view min-h-screen flex flex-col bg-[#f1f3f6]">
     <header class="px-5 pb-14 text-white" style="padding-top:max(3.25rem,calc(env(safe-area-inset-top) + 1rem));background-image:radial-gradient(rgba(255,255,255,.08) 1px, transparent 1.3px),linear-gradient(155deg,#233350 0%,#0b1220 92%);background-size:22px 22px,100% 100%">
       <div class="flex items-center justify-between mb-6">
-        <span class="logo-chip inline-flex items-center bg-white rounded-xl px-3.5 py-2.5 shadow-md"><img src="./spark-logo.png" class="h-8 w-auto" onerror="this.parentNode.style.display='none'" /></span>
+        <span class="logo-chip inline-flex items-center bg-white rounded-xl px-3.5 py-2.5 shadow-md"><img src="./spark-logo.png" alt="Spark Group" class="h-8 w-auto" onerror="this.parentNode.style.display='none'" /></span>
         <div class="flex items-center gap-3 scale-90 origin-right">${darkBtn('')}<button data-act="settings" class="press text-white/70 text-base" aria-label="Settings">⚙</button></div>
       </div>
       <h1 class="text-[20px] font-bold leading-tight">${greet}${who}</h1>
@@ -1639,7 +1640,7 @@ function renderHome() {
       </div>
     </header>
 
-    <div class="flex-1 px-4 pb-6" style="padding-top:1.5rem">
+    <main class="flex-1 px-4 pb-6" style="padding-top:1.5rem">
       <div class="flex gap-2 mb-5">
         <button data-act="new" style="flex:1.7" class="press py-2.5 bg-spark text-white rounded-xl font-bold text-[15px] shadow-lg shadow-spark/30 flex items-center justify-center gap-1.5">
           <svg width="17" height="17" viewBox="0 0 24 24" fill="none"><path d="M12 5v14M5 12h14" stroke="white" stroke-width="2.6" stroke-linecap="round"/></svg>New Estimate
@@ -1680,7 +1681,7 @@ function renderHome() {
         <button data-act="settings" class="text-[12px] text-gray-400 font-semibold underline">Settings</button>
       </div>
       <div class="mt-3 text-center text-[10px] text-gray-300">Spark Estimator ${APP_VERSION}${LOCK ? ' · 🔒 locked' : ''}</div>
-    </div>
+    </main>
   </div>`;
   bind();
   // count the stat tiles up from zero: the pipeline should feel alive
@@ -1743,7 +1744,7 @@ function modalAddRoom() {
 function renderLock(){
   $app.innerHTML = `
   <div class="min-h-screen flex flex-col items-center justify-center px-8 bg-ink text-white" style="min-height:100dvh">
-    <span class="logo-chip inline-flex items-center bg-white rounded-xl px-3 py-2 mb-6"><img src="./spark-logo.png" class="h-7 w-auto" onerror="this.parentNode.style.display='none'"/></span>
+    <span class="logo-chip inline-flex items-center bg-white rounded-xl px-3 py-2 mb-6"><img src="./spark-logo.png" alt="Spark Group" class="h-7 w-auto" onerror="this.parentNode.style.display='none'"/></span>
     <div class="font-extrabold text-xl mb-1">Enter PIN</div>
     <div class="text-[13px] text-gray-400 mb-5">This estimator is locked.</div>
     <input id="pinIn" type="password" inputmode="numeric" autocomplete="off" maxlength="8"
@@ -3606,7 +3607,74 @@ function confirmDel(msg, fn) {
 /* =====================================================================
    12. BOOT + PWA
    ===================================================================== */
+/* =====================================================================
+   Built-in self-test: add ?selftest to the URL to run checks over the
+   domain logic (price resolution, totals, contingency, deal math,
+   snapshot diff, storage integrity). Zero dependencies, fully offline,
+   writes nothing. A reviewer can verify correctness in one click.
+   ===================================================================== */
+function runSelfTest(){
+  const results = [];
+  const assert = (cond, msg) => { if (!cond) throw new Error(msg || 'assertion failed'); };
+  const check = (name, fn) => { try { fn(); results.push({ name, pass: true }); } catch (e) { results.push({ name, pass: false, detail: e.message }); } };
+  const savedP = P; // the self-test never calls save(), so nothing is persisted
+
+  check('Price list has 108 items', () => assert(PRICE_LIST.length === 108, 'got ' + PRICE_LIST.length));
+  check('Every price item is well-formed', () => assert(PRICE_LIST.every(i => i.id && i.name && typeof i.cost === 'number' && i.unit)));
+  check('Composite cell key round-trips', () => assert(cellKey('r1','g1','i1') === 'r1|g1|i1'));
+  check('Every room-group maps to real items', () => { let bad = 0; Object.values(ROOM_TYPES).forEach(rt => rt.groups.forEach(g => groupItemIds(g).forEach(id => { if (!itemById(id)) bad++; }))); assert(bad === 0, bad + ' unmapped ids'); });
+
+  P = blankProject('Self-test');
+  const interior = P.rooms.find(r => r.type === 'interior');
+  check('New project seeds default rooms', () => assert(P.rooms.length >= 6, 'rooms=' + P.rooms.length));
+  check('Price resolves to the CSV default', () => { const it = PRICE_LIST.find(x => x.id === 'ig-06'); assert(priceOf('ig-06') === it.cost, 'priceOf=' + priceOf('ig-06')); });
+
+  P.cells[cellKey(interior.id,'flooring','ig-06')] = { q: 100 }; // carpet $1.90 x 100 = $190
+  check('Line total = qty x unit price', () => assert(Math.round(lineTotal(interior.id,'flooring','ig-06')) === 190, 'lt=' + lineTotal(interior.id,'flooring','ig-06')));
+  check('Grand total sums the line items', () => assert(Math.round(grandTotal()) === 190, 'gt=' + grandTotal()));
+
+  P.contingency = 10;
+  check('Buffered total = raw + 10%', () => assert(bufferedTotal() === 209, 'buffered=' + bufferedTotal()));
+  check('Contingency amount = 10% of raw', () => assert(contingencyAmt() === 19, 'amt=' + contingencyAmt()));
+  P.contingency = 0;
+
+  P.deal = { arv:'300000', purchase:'150000', weeks:8, perWeek:350, sellPct:8 };
+  check('70% max offer = ARV x 0.7 - repairs', () => { const mao = 300000 * 0.7 - bufferedTotal(); assert(mao === 210000 - 190, 'mao=' + mao); });
+
+  const before = { cells: JSON.parse(JSON.stringify(P.cells)), nan: P.nan, rooms: P.rooms, priceOverrides: P.priceOverrides, deal: P.deal, total: grandTotal() };
+  P.cells[cellKey(interior.id,'flooring','ig-05')] = { q: 50 }; // add vinyl plank
+  const diff = diffEstimate(before, { cells: P.cells, nan: P.nan, rooms: P.rooms, priceOverrides: P.priceOverrides, deal: P.deal }, 'before', 'now');
+  check('Snapshot diff detects the added item', () => assert(diff.added.length === 1, 'added=' + diff.added.length));
+
+  check('localStorage read/write works', () => { const k = '__st__'; localStorage.setItem(k, 'ok'); const v = localStorage.getItem(k); localStorage.removeItem(k); assert(v === 'ok'); });
+
+  P = savedP;
+  return results;
+}
+function renderSelfTest(){
+  const results = runSelfTest();
+  const passed = results.filter(r => r.pass).length, total = results.length, ok = passed === total;
+  $app.innerHTML = `
+  <main class="min-h-screen bg-[#f1f3f6] px-4 py-6 max-w-md mx-auto">
+    <div class="flex items-center gap-2 mb-1"><span class="text-2xl">${ok ? '✅' : '⚠️'}</span><h1 class="font-extrabold text-xl">Self-test</h1></div>
+    <p class="text-[13px] text-gray-500 mb-4">${passed}/${total} checks passed. Runs the app's domain logic in isolation; no data is written.</p>
+    <div class="space-y-1.5">
+      ${results.map(r => `
+        <div class="flex items-start gap-2 bg-white rounded-xl p-3 shadow-sm">
+          <span class="flex-shrink-0">${r.pass ? '🟢' : '🔴'}</span>
+          <div class="flex-1 min-w-0">
+            <div class="text-[13px] font-semibold text-gray-700">${esc(r.name)}</div>
+            ${r.detail ? `<div class="text-[11px] text-red-500 mt-0.5">${esc(r.detail)}</div>` : ''}
+          </div>
+        </div>`).join('')}
+    </div>
+    <a href="./" class="press block text-center mt-5 py-3 bg-ink text-white rounded-xl font-bold">Back to the app</a>
+    <div class="text-center text-[10px] text-gray-300 mt-3">Spark Estimator ${APP_VERSION} · self-test</div>
+  </main>`;
+}
 function boot() {
+  // Built-in self-test mode (add ?selftest to the URL)
+  if (/[?#&]selftest\b/.test(location.href)) { renderSelfTest(); return; }
   // PIN lock gate: ask once per session before anything renders
   if (LOCK && sessionStorage.getItem('spark_unlocked') !== '1'){ renderLock(); return; }
   // First run: ask the agent's name once, then remember it forever
